@@ -1,0 +1,10 @@
+.DS_Store
+.env
+.env.*
+*.log
+*.test
+coverage.out
+/visualize
+/visualize-output/
+/dist/
+/tmp/

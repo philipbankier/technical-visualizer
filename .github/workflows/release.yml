@@ -1,0 +1,46 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26.3"
+          cache: true
+      - run: script/lint
+      - run: script/test
+      - run: script/smoke
+      - name: Build release assets
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64; do
+            goos="${target%/*}"
+            goarch="${target#*/}"
+            name="visualize_${goos}_${goarch}"
+            mkdir -p "dist/${name}"
+            output="dist/${name}/visualize"
+            if [[ "$goos" == "windows" ]]; then
+              output="${output}.exe"
+            fi
+            GOOS="$goos" GOARCH="$goarch" go build -trimpath -ldflags="-s -w" -o "$output" ./cmd/visualize
+            tar -C "dist/${name}" -czf "dist/${name}.tar.gz" .
+            rm -rf "dist/${name}"
+          done
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file CHANGELOG.md

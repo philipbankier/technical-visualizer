@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+bin="${TMPDIR:-/tmp}/visualize"
+out="${TMPDIR:-/tmp}/visualize-smoke"
+
+go build -trimpath -o "$bin" ./cmd/visualize
+"$bin" --help >/dev/null
+"$bin" --version >/dev/null
+"$bin" doctor >/dev/null
+
+rm -rf "$out"
+"$bin" --backend local --renderer html --offline --out "$out" ./testdata/sample-repo ./testdata/notes.md
+
+test -s "$out/scaffold.html"
+test -s "$out/visual-packet.json"
+test -s "$out/final.png"
+test -s "$out/manifest.json"
