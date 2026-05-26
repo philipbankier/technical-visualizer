@@ -38,11 +38,6 @@
       "sha256": "f29878001b828e88a216afff300e56a340133edf3943bc6c3021f1c1f8a8d539"
     },
     {
-      "kind": "image",
-      "path": "final.png",
-      "sha256": "89b219dc3aeba413526fecdaa095f4edcc626ccec61fe7ce81c3c23ac04437bb"
-    },
-    {
       "kind": "manifest",
       "path": "manifest.json"
     }
