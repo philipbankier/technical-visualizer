@@ -1,11 +1,15 @@
 # Sample Bundle
 
-This sample shows the shape of a local `technical-visualizer` output bundle.
+This sample shows a checked-in excerpt of a local `technical-visualizer` output bundle.
 
-Regenerate it from the repository root:
+Regenerate and prune it from the repository root:
 
 ```bash
+rm -rf examples/sample-bundle/output
 go run ./cmd/visualize --backend local --renderer html --offline --out examples/sample-bundle/output examples/sample-bundle/input/notes.md
+rm -f examples/sample-bundle/output/final.png
 ```
 
-Inspect `output/scaffold.html` first. `output/final.png` is intentionally not checked in because the local PNG is only a fallback preview in v0.1.
+After generation, edit `examples/sample-bundle/output/manifest.json` to remove the `image` output entry for `final.png`.
+
+The committed excerpt includes only `output/scaffold.html`, `output/visual-packet.json`, and `output/manifest.json`. Inspect `output/scaffold.html` first. `output/final.png` is intentionally not checked in because the local PNG is only a fallback preview in v0.1.
