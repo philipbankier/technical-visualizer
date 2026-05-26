@@ -102,6 +102,84 @@ func TestValidateBundleRequiresManifestNextSteps(t *testing.T) {
 	}
 }
 
+func TestValidateBundleReportsMissingDeclaredCodexHandoff(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		SchemaVersion: "visual-packet/v1",
+		Title:         "Acme Map",
+		RequiredText:  []string{"Acme Map"},
+	}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+		Kind:   "handoff_prompt",
+		Path:   "handoff/codex-prompt.md",
+		SHA256: "missing",
+	})
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "handoff_brief") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing handoff_brief output", issues)
+	}
+	if !hasIssueContaining(issues, "manifest.json", "could not be checked") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing handoff prompt", issues)
+	}
+}
+
+func TestValidateBundleRejectsBackslashOutputPathBeforeHashing(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	manifest := validManifest(dir)
+	manifest.OutputFiles[0].Path = "..\\secret"
+	manifest.OutputFiles[0].SHA256 = "missing"
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "unsafe path") {
+		t.Fatalf("ValidateBundle issues = %#v, want unsafe path issue", issues)
+	}
+	if hasIssueContaining(issues, "manifest.json", "could not be checked") {
+		t.Fatalf("ValidateBundle issues = %#v, should reject before hashing", issues)
+	}
+}
+
+func TestValidateBundleAcceptsDeclaredCodexHandoff(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		SchemaVersion: "visual-packet/v1",
+		Title:         "Acme Map",
+		RequiredText:  []string{"Acme Map"},
+	}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	if err := os.MkdirAll(filepath.Join(dir, "handoff"), 0o700); err != nil {
+		t.Fatalf("MkdirAll(handoff) error = %v", err)
+	}
+	for _, rel := range []string{"handoff/codex-prompt.md", "handoff/image-brief.md", "handoff/qa-checklist.md", "handoff/style.md"} {
+		writeFile(t, filepath.Join(dir, filepath.FromSlash(rel)), rel)
+	}
+	manifest := validManifest(dir)
+	manifest.NextSteps = []string{"Use the generated handoff package."}
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "handoff_prompt", Path: "handoff/codex-prompt.md", SHA256: sha256File(filepath.Join(dir, "handoff", "codex-prompt.md"))},
+		model.OutputFile{Kind: "handoff_brief", Path: "handoff/image-brief.md", SHA256: sha256File(filepath.Join(dir, "handoff", "image-brief.md"))},
+		model.OutputFile{Kind: "handoff_checklist", Path: "handoff/qa-checklist.md", SHA256: sha256File(filepath.Join(dir, "handoff", "qa-checklist.md"))},
+		model.OutputFile{Kind: "handoff_style", Path: "handoff/style.md", SHA256: sha256File(filepath.Join(dir, "handoff", "style.md"))},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	if issues := ValidateBundle(dir); len(issues) != 0 {
+		t.Fatalf("ValidateBundle issues = %#v, want none", issues)
+	}
+}
+
 func TestValidateBundleAcceptsManifestAuditFields(t *testing.T) {
 	dir := t.TempDir()
 	packet := model.VisualPacket{

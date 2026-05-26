@@ -86,6 +86,107 @@ func TestRunMakeLocalHTMLWritesBundle(t *testing.T) {
 	}
 }
 
+func TestRunQuickCodexPrintsManualCommand(t *testing.T) {
+	outputDir := filepath.Join(t.TempDir(), "visual output")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{
+		"--backend", "local",
+		"--renderer", "html",
+		"--handoff", "codex",
+		"--quick",
+		"--out", outputDir,
+		filepath.Join("..", "..", "testdata", "research-knowledge-base.md"),
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+	}
+
+	got := stdout.String()
+	for _, want := range []string{"Codex handoff:", "POSIX shell:", "codex -C", filepath.Join(outputDir, "handoff", "codex-prompt.md")} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q in: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "$(cat handoff/codex-prompt.md)") {
+		t.Fatalf("stdout uses prompt path relative to caller cwd: %s", got)
+	}
+	if !strings.Contains(got, "$(cat < ") {
+		t.Fatalf("stdout should read prompt through POSIX input redirection: %s", got)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "handoff", "codex-prompt.md")); err != nil {
+		t.Fatalf("Stat(codex-prompt.md) error = %v", err)
+	}
+}
+
+func TestRunQuickCodexCommandHandlesDashPrefixedOutputDir(t *testing.T) {
+	sourcePath, err := filepath.Abs(filepath.Join("..", "..", "testdata", "research-knowledge-base.md"))
+	if err != nil {
+		t.Fatalf("Abs(source) error = %v", err)
+	}
+	workDir := t.TempDir()
+	oldDir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	if err := os.Chdir(workDir); err != nil {
+		t.Fatalf("Chdir(%s) error = %v", workDir, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldDir); err != nil {
+			t.Fatalf("restore Chdir(%s) error = %v", oldDir, err)
+		}
+	})
+
+	outputDir := "-bad"
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code := Run([]string{
+		"--backend", "local",
+		"--renderer", "html",
+		"--handoff", "codex",
+		"--quick",
+		"--out", outputDir,
+		sourcePath,
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+	}
+
+	got := stdout.String()
+	if !strings.Contains(got, "$(cat < '-bad") {
+		t.Fatalf("stdout should protect dash-prefixed prompt path with input redirection: %s", got)
+	}
+	if strings.Contains(got, "$(cat '-bad") {
+		t.Fatalf("stdout lets cat treat dash-prefixed prompt as an option: %s", got)
+	}
+}
+
+func TestRunQuickCodexPrintsManualCommandWithUppercaseHandoff(t *testing.T) {
+	outputDir := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{
+		"--backend", "local",
+		"--renderer", "html",
+		"--handoff", "CODEX",
+		"--quick",
+		"--out", outputDir,
+		filepath.Join("..", "..", "testdata", "research-knowledge-base.md"),
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run() code = %d, stderr = %s", code, stderr.String())
+	}
+	got := stdout.String()
+	for _, want := range []string{"Codex handoff:", "POSIX shell:", "codex -C", filepath.Join(outputDir, "handoff", "codex-prompt.md")} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q in: %s", want, got)
+		}
+	}
+}
+
 func TestRunCodexBackendReturnsClearErrorBeforeBundleWrite(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "notes.md")
 	if err := os.WriteFile(sourcePath, []byte("# System\n"), 0o644); err != nil {

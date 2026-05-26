@@ -157,6 +157,7 @@ func backupExistingTarget(target string) (targetBackup, error) {
 	if !info.Mode().IsRegular() {
 		return targetBackup{}, fmt.Errorf("handoff target is not a regular file: %s", target)
 	}
+	// #nosec G304 -- target was preflighted as a generated handoff file in the output bundle.
 	data, err := os.ReadFile(target)
 	if err != nil {
 		return targetBackup{}, err
@@ -261,6 +262,7 @@ func ensurePrivateDirectory(dir string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("handoff path is not a directory: %s", dir)
 	}
+	// #nosec G302 -- generated handoff directories need owner-only execute permission.
 	return os.Chmod(dir, 0o700)
 }
 

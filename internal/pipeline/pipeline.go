@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/philipbankier/technical-visualizer/internal/backend"
+	"github.com/philipbankier/technical-visualizer/internal/handoff"
 	"github.com/philipbankier/technical-visualizer/internal/model"
 	"github.com/philipbankier/technical-visualizer/internal/packet"
 	"github.com/philipbankier/technical-visualizer/internal/quality"
@@ -23,6 +24,12 @@ import (
 const toolVersion = "0.1.0"
 
 var generatedBundleFiles = []string{"scaffold.html", "visual-packet.json", "final.png", "manifest.json"}
+var generatedHandoffFiles = []string{
+	"handoff/codex-prompt.md",
+	"handoff/image-brief.md",
+	"handoff/qa-checklist.md",
+	"handoff/style.md",
+}
 
 type openAIImageBackend interface {
 	Name() string
@@ -42,6 +49,8 @@ type Options struct {
 	Style     string
 	Goal      string
 	Offline   bool
+	Handoff   string
+	Quick     bool
 }
 
 type imageGenerationResult struct {
@@ -51,6 +60,7 @@ type imageGenerationResult struct {
 	FallbackUsed            bool
 	PromptTruncated         bool
 	PromptTruncationMessage string
+	HandoffWritten          bool
 }
 
 func Run(ctx context.Context, opts Options) (model.Manifest, error) {
@@ -94,6 +104,17 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	imagePath := filepath.Join(opts.OutputDir, "final.png")
 	manifestPath := filepath.Join(opts.OutputDir, "manifest.json")
 
+	backup, err := backupGeneratedBundleFiles(opts.OutputDir)
+	if err != nil {
+		return model.Manifest{}, err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			backup.restore()
+		}
+	}()
+
 	if err := render.WriteScaffoldFile(scaffoldPath, visualPacket); err != nil {
 		return model.Manifest{}, err
 	}
@@ -110,6 +131,20 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	imageResult, err := generateImage(ctx, opts, visualPacket, string(packetJSON), string(scaffoldHTML), imagePath)
 	if err != nil {
 		return model.Manifest{}, err
+	}
+	handoffResult := handoff.Result{}
+	if opts.Handoff == "codex" {
+		result, err := handoff.WriteCodexPackage(opts.OutputDir, visualPacket, handoff.Options{OutputImagePath: "final.png"})
+		if err != nil {
+			return model.Manifest{}, err
+		}
+		handoffResult = result
+		imageResult.HandoffWritten = true
+	}
+	if !imageResult.HandoffWritten {
+		if err := removeGeneratedHandoffFiles(opts.OutputDir); err != nil {
+			return model.Manifest{}, err
+		}
 	}
 
 	warnings := append(append([]string(nil), publicEvidence.Warnings...), imageResult.Warnings...)
@@ -129,6 +164,9 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 			{Kind: "manifest", Path: "manifest.json"},
 		},
 	}
+	if imageResult.HandoffWritten {
+		manifest.OutputFiles = append(manifest.OutputFiles, handoffOutputFiles(opts.OutputDir, handoffResult)...)
+	}
 	if _, err := writeManifestFile(manifestPath, manifest); err != nil {
 		return model.Manifest{}, err
 	}
@@ -136,6 +174,7 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	if issues := quality.ValidateBundle(opts.OutputDir); len(issues) > 0 {
 		return manifest, fmt.Errorf("quality validation failed: %s", formatIssues(issues))
 	}
+	committed = true
 	return manifest, nil
 }
 
@@ -158,15 +197,23 @@ func baselineAudit(opts Options, imageResult imageGenerationResult, publicEviden
 func nextSteps(opts Options, imageResult imageGenerationResult) []string {
 	var steps []string
 	if imageResult.BackendInfo.Name == "local" {
-		steps = append(steps, "Open scaffold.html first; it is the primary local artifact for this run.")
+		steps = append(steps, "Open scaffold.html first; visual-packet.json contains the source-backed content packet for this run.")
 		steps = append(steps, "For a polished OpenAI image, set OPENAI_API_KEY and rerun with --backend openai --renderer image.")
-		steps = append(steps, "For Codex handoff before CLI handoff support, use interactive Codex with scaffold.html and visual-packet.json.")
+		if imageResult.HandoffWritten {
+			steps = append(steps, "For Codex image generation, open handoff/codex-prompt.md and run it in interactive Codex.")
+		} else {
+			steps = append(steps, "For a guided Codex package, rerun with --handoff codex.")
+		}
 	}
 	if imageResult.BackendInfo.Name == "openai" {
 		steps = append(steps, "Inspect final.png for the generated image and manifest.json for source and backend audit details.")
 	}
 	if imageResult.FallbackUsed {
-		steps = append(steps, "The run used a local fallback; use explicit --backend openai for a polished image path or interactive Codex with scaffold.html and visual-packet.json.")
+		if imageResult.HandoffWritten {
+			steps = append(steps, "The run used a local fallback; open handoff/codex-prompt.md for the interactive Codex path.")
+		} else {
+			steps = append(steps, "The run used a local fallback; use explicit --backend openai or --handoff codex for a polished image path.")
+		}
 	}
 	if opts.Offline {
 		steps = append(steps, "offline mode was enabled; no remote source fetching or remote image generation was performed.")
@@ -192,6 +239,7 @@ func normalizeOptions(opts Options) Options {
 	}
 	opts.Backend = strings.ToLower(strings.TrimSpace(opts.Backend))
 	opts.Renderer = strings.ToLower(strings.TrimSpace(opts.Renderer))
+	opts.Handoff = strings.ToLower(strings.TrimSpace(opts.Handoff))
 	return opts
 }
 
@@ -209,6 +257,16 @@ func validateOptions(opts Options) error {
 	case "html", "hybrid", "image":
 	default:
 		return fmt.Errorf("unsupported renderer %q", opts.Renderer)
+	}
+
+	switch opts.Handoff {
+	case "", "codex":
+	default:
+		return fmt.Errorf("unsupported handoff %q", opts.Handoff)
+	}
+
+	if opts.Quick && opts.Handoff != "codex" {
+		return errors.New("--quick requires --handoff codex")
 	}
 
 	if opts.Offline && opts.Backend == "openai" {
@@ -452,7 +510,160 @@ func removeGeneratedBundleFiles(outputDir string) error {
 			return fmt.Errorf("remove %s: %w", name, err)
 		}
 	}
+	return removeGeneratedHandoffFiles(outputDir)
+}
+
+func removeGeneratedHandoffFiles(outputDir string) error {
+	if err := ensureGeneratedHandoffParentSafe(outputDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, name := range generatedHandoffFiles {
+		if err := os.Remove(filepath.Join(outputDir, filepath.FromSlash(name))); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", name, err)
+		}
+	}
+	return removeEmptyGeneratedHandoffDir(outputDir)
+}
+
+func ensureGeneratedHandoffParentSafe(outputDir string) error {
+	handoffDir := filepath.Join(outputDir, "handoff")
+	info, err := os.Lstat(handoffDir)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("handoff directory is a symlink: %s", handoffDir)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("handoff path is not a directory: %s", handoffDir)
+	}
 	return nil
+}
+
+func generatedHandoffParentIsSafe(outputDir string) bool {
+	err := ensureGeneratedHandoffParentSafe(outputDir)
+	return err == nil || errors.Is(err, os.ErrNotExist)
+}
+
+func relPathUsesGeneratedHandoffDir(relPath string) bool {
+	return strings.HasPrefix(filepath.ToSlash(relPath), "handoff/")
+}
+
+func removeEmptyGeneratedHandoffDir(outputDir string) error {
+	handoffDir := filepath.Join(outputDir, "handoff")
+	if err := ensureGeneratedHandoffParentSafe(outputDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	err := os.Remove(handoffDir)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if entries, readErr := os.ReadDir(handoffDir); readErr == nil && len(entries) > 0 {
+		return nil
+	}
+	return fmt.Errorf("remove handoff: %w", err)
+}
+
+func backupGeneratedBundleFiles(outputDir string) (generatedBundleBackup, error) {
+	if err := ensureGeneratedHandoffParentSafe(outputDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return generatedBundleBackup{}, err
+	}
+	backup := generatedBundleBackup{
+		outputDir: outputDir,
+		files:     make([]generatedFileBackup, 0, len(generatedBundleRelPaths())),
+	}
+	for _, relPath := range generatedBundleRelPaths() {
+		if relPathUsesGeneratedHandoffDir(relPath) && !generatedHandoffParentIsSafe(outputDir) {
+			return generatedBundleBackup{}, fmt.Errorf("handoff directory is unsafe: %s", filepath.Join(outputDir, "handoff"))
+		}
+		path := filepath.Join(outputDir, filepath.FromSlash(relPath))
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			backup.files = append(backup.files, generatedFileBackup{relPath: relPath})
+			continue
+		}
+		if err != nil {
+			return generatedBundleBackup{}, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return generatedBundleBackup{}, fmt.Errorf("generated bundle file is a symlink: %s", relPath)
+		}
+		if !info.Mode().IsRegular() {
+			return generatedBundleBackup{}, fmt.Errorf("generated bundle path is not a regular file: %s", relPath)
+		}
+		// #nosec G304 -- relPath is selected from the fixed generated bundle file list.
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return generatedBundleBackup{}, err
+		}
+		backup.files = append(backup.files, generatedFileBackup{
+			relPath: relPath,
+			exists:  true,
+			data:    data,
+			mode:    info.Mode().Perm(),
+		})
+	}
+	return backup, nil
+}
+
+type generatedBundleBackup struct {
+	outputDir string
+	files     []generatedFileBackup
+}
+
+type generatedFileBackup struct {
+	relPath string
+	exists  bool
+	data    []byte
+	mode    os.FileMode
+}
+
+func generatedBundleRelPaths() []string {
+	paths := make([]string, 0, len(generatedBundleFiles)+len(generatedHandoffFiles))
+	paths = append(paths, generatedBundleFiles...)
+	paths = append(paths, generatedHandoffFiles...)
+	return paths
+}
+
+func (backup generatedBundleBackup) restore() {
+	handoffParentSafe := generatedHandoffParentIsSafe(backup.outputDir)
+	for _, file := range backup.files {
+		if relPathUsesGeneratedHandoffDir(file.relPath) && !handoffParentSafe {
+			continue
+		}
+		path := filepath.Join(backup.outputDir, filepath.FromSlash(file.relPath))
+		_ = os.Remove(path)
+	}
+	for _, file := range backup.files {
+		if !file.exists {
+			continue
+		}
+		if relPathUsesGeneratedHandoffDir(file.relPath) && !handoffParentSafe {
+			continue
+		}
+		path := filepath.Join(backup.outputDir, filepath.FromSlash(file.relPath))
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			continue
+		}
+		_ = os.WriteFile(path, file.data, file.mode)
+		_ = os.Chmod(path, file.mode)
+	}
+	_ = removeEmptyGeneratedHandoffDir(backup.outputDir)
+}
+
+func handoffOutputFiles(outputDir string, result handoff.Result) []model.OutputFile {
+	return []model.OutputFile{
+		outputFile("handoff_prompt", result.PromptPath, filepath.Join(outputDir, filepath.FromSlash(result.PromptPath))),
+		outputFile("handoff_brief", result.BriefPath, filepath.Join(outputDir, filepath.FromSlash(result.BriefPath))),
+		outputFile("handoff_checklist", result.ChecklistPath, filepath.Join(outputDir, filepath.FromSlash(result.ChecklistPath))),
+		outputFile("handoff_style", result.StylePath, filepath.Join(outputDir, filepath.FromSlash(result.StylePath))),
+	}
 }
 
 func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {

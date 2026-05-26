@@ -117,6 +117,167 @@ func TestRunNoEvidenceCleansStaleGeneratedBundleFiles(t *testing.T) {
 	}
 }
 
+func TestRunNoEvidenceCleansStaleHandoffFiles(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nThis run writes handoff files."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Handoff:   "codex",
+	})
+	if err != nil {
+		t.Fatalf("initial Run() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "handoff", "codex-prompt.md")); err != nil {
+		t.Fatalf("Stat(codex-prompt.md) after initial run error = %v", err)
+	}
+	customPath := filepath.Join(outputDir, "handoff", "operator-note.md")
+	if err := os.WriteFile(customPath, []byte("keep me"), 0o600); err != nil {
+		t.Fatalf("WriteFile(custom handoff file) error = %v", err)
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	_, err = Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Handoff:   "codex",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want no evidence error")
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "handoff", "codex-prompt.md")); !os.IsNotExist(statErr) {
+		t.Fatalf("generated prompt exists after no-evidence rerun, stat error = %v", statErr)
+	}
+	data, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatalf("ReadFile(custom handoff file) error = %v", err)
+	}
+	if string(data) != "keep me" {
+		t.Fatalf("custom handoff file = %q, want preserved", data)
+	}
+}
+
+func TestRunFailureAfterExistingBundleRestoresPreviousBundle(t *testing.T) {
+	useOpenAIFake(t, fakeOpenAIBackend{generateErr: errors.New("forced OpenAI failure")})
+	root := t.TempDir()
+	oldSource := filepath.Join(root, "old.md")
+	newSource := filepath.Join(root, "new.md")
+	if err := os.WriteFile(oldSource, []byte("# Old Source\n\nPrevious bundle content."), 0o644); err != nil {
+		t.Fatalf("WriteFile(old source) error = %v", err)
+	}
+	if err := os.WriteFile(newSource, []byte("# New Source\n\nThis failed run must not replace the prior bundle."), 0o644); err != nil {
+		t.Fatalf("WriteFile(new source) error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{oldSource},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Handoff:   "codex",
+	})
+	if err != nil {
+		t.Fatalf("initial Run() error = %v", err)
+	}
+	beforeManifest, err := os.ReadFile(filepath.Join(outputDir, "manifest.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(manifest before) error = %v", err)
+	}
+	beforePrompt, err := os.ReadFile(filepath.Join(outputDir, "handoff", "codex-prompt.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(prompt before) error = %v", err)
+	}
+
+	_, err = Run(context.Background(), Options{
+		Sources:   []string{newSource},
+		OutputDir: outputDir,
+		Backend:   "openai",
+		Renderer:  "image",
+		Handoff:   "codex",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want forced OpenAI failure")
+	}
+
+	afterManifest, err := os.ReadFile(filepath.Join(outputDir, "manifest.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(manifest after) error = %v", err)
+	}
+	if string(afterManifest) != string(beforeManifest) {
+		t.Fatalf("manifest changed after failed rerun\nbefore:\n%s\nafter:\n%s", beforeManifest, afterManifest)
+	}
+	afterPrompt, err := os.ReadFile(filepath.Join(outputDir, "handoff", "codex-prompt.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(prompt after) error = %v", err)
+	}
+	if string(afterPrompt) != string(beforePrompt) {
+		t.Fatalf("handoff prompt changed after failed rerun")
+	}
+}
+
+func TestRunRejectsSymlinkedHandoffDirectoryBeforeRewrite(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nSymlinked handoff dirs must not be followed."), 0o644); err != nil {
+		t.Fatalf("WriteFile(source) error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+	if err := os.MkdirAll(outputDir, 0o700); err != nil {
+		t.Fatalf("MkdirAll(output) error = %v", err)
+	}
+	outside := t.TempDir()
+	outsidePrompt := filepath.Join(outside, "codex-prompt.md")
+	if err := os.WriteFile(outsidePrompt, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("WriteFile(outside prompt) error = %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(outputDir, "handoff")); err != nil {
+		t.Skipf("Symlink() unsupported: %v", err)
+	}
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Handoff:   "codex",
+	})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("Run() error = %v, want symlink rejection", err)
+	}
+	data, err := os.ReadFile(outsidePrompt)
+	if err != nil {
+		t.Fatalf("ReadFile(outside prompt) error = %v", err)
+	}
+	if string(data) != "outside" {
+		t.Fatalf("outside prompt = %q, want unchanged", data)
+	}
+}
+
+func TestBackupGeneratedBundleFilesRejectsSymlinkedHandoffDirectory(t *testing.T) {
+	outputDir := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(outputDir, "handoff")); err != nil {
+		t.Skipf("Symlink() unsupported: %v", err)
+	}
+
+	_, err := backupGeneratedBundleFiles(outputDir)
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("backupGeneratedBundleFiles() error = %v, want symlink rejection", err)
+	}
+}
+
 func TestRunAutoFallsBackWhenOpenAIGenerationFails(t *testing.T) {
 	useOpenAIFake(t, fakeOpenAIBackend{generateErr: errors.New("forced OpenAI failure")})
 	sourcePath := filepath.Join(t.TempDir(), "notes.md")
@@ -409,8 +570,55 @@ func TestRunAddsLocalNextSteps(t *testing.T) {
 	}
 	assertNextStepContains(t, manifest.NextSteps, "scaffold.html")
 	assertNextStepContains(t, manifest.NextSteps, "visual-packet.json")
-	assertNoNextStepContains(t, manifest.NextSteps, "--handoff codex")
+	assertNextStepContains(t, manifest.NextSteps, "--handoff codex")
 	assertNextStepContains(t, manifest.NextSteps, "--backend openai --renderer image")
+}
+
+func TestRunWritesCodexHandoffPackage(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "research-knowledge-base.md")},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Handoff:   "codex",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	for _, rel := range []string{"handoff/codex-prompt.md", "handoff/image-brief.md", "handoff/qa-checklist.md", "handoff/style.md"} {
+		info, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("expected %s: %v", rel, err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s permissions = %o, want 0600", rel, info.Mode().Perm())
+		}
+	}
+	for _, kind := range []string{"handoff_prompt", "handoff_brief", "handoff_checklist", "handoff_style"} {
+		if !hasOutputKind(manifest.OutputFiles, kind) {
+			t.Fatalf("manifest output files missing kind %q: %#v", kind, manifest.OutputFiles)
+		}
+	}
+	assertNextStepContains(t, manifest.NextSteps, "handoff/codex-prompt.md")
+	assertNoNextStepContains(t, manifest.NextSteps, "--backend codex")
+}
+
+func TestRunRejectsQuickWithoutCodexHandoff(t *testing.T) {
+	outputDir := t.TempDir()
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "notes.md")},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Quick:     true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "--quick requires --handoff codex") {
+		t.Fatalf("Run() error = %v, want quick handoff error", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "scaffold.html")); !os.IsNotExist(statErr) {
+		t.Fatalf("scaffold.html exists after rejected quick run, stat error = %v", statErr)
+	}
 }
 
 func TestRunAddsOfflineNextStep(t *testing.T) {
@@ -441,7 +649,8 @@ func TestNextStepsDescribeOpenAIAndFallbackRuns(t *testing.T) {
 	})
 	assertNextStepContains(t, fallbackSteps, "fallback")
 	assertNextStepContains(t, fallbackSteps, "--backend openai")
-	assertNoNextStepContains(t, fallbackSteps, "--handoff codex")
+	assertNextStepContains(t, fallbackSteps, "--handoff codex")
+	assertNoNextStepContains(t, fallbackSteps, "--backend codex")
 }
 
 func assertNextStepContains(t *testing.T, steps []string, want string) {

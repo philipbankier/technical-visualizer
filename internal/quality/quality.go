@@ -8,6 +8,7 @@ import (
 	"html"
 	"image/png"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -166,7 +167,37 @@ func validateManifest(dir string) []Issue {
 		}
 		issues = append(issues, validateOutputFile(dir, kind, expectedPath, file)...)
 	}
+	issues = append(issues, validateHandoffOutputFiles(dir, outputs)...)
 
+	return issues
+}
+
+func validateHandoffOutputFiles(dir string, outputs map[string]outputFileSummary) []Issue {
+	expected := map[string]string{
+		"handoff_prompt":    "handoff/codex-prompt.md",
+		"handoff_brief":     "handoff/image-brief.md",
+		"handoff_checklist": "handoff/qa-checklist.md",
+		"handoff_style":     "handoff/style.md",
+	}
+	declared := false
+	for kind := range expected {
+		if _, ok := outputs[kind]; ok {
+			declared = true
+			break
+		}
+	}
+	if !declared {
+		return nil
+	}
+	var issues []Issue
+	for kind, expectedPath := range expected {
+		file, ok := outputs[kind]
+		if !ok {
+			issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("output_files missing %q", kind)})
+			continue
+		}
+		issues = append(issues, validateOutputFile(dir, kind, expectedPath, file)...)
+	}
 	return issues
 }
 
@@ -269,12 +300,16 @@ func allowedValue(value string, allowed []string) bool {
 
 func validateOutputFile(dir string, kind string, expectedPath string, file outputFileSummary) []Issue {
 	var issues []Issue
-	cleanPath := filepath.Clean(file.Path)
-	if cleanPath == "." || filepath.IsAbs(cleanPath) || strings.HasPrefix(cleanPath, ".."+string(filepath.Separator)) || cleanPath == ".." {
+	if strings.Contains(file.Path, "\\") {
+		return []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q has unsafe path %q", kind, file.Path)}}
+	}
+	cleanPath := path.Clean(file.Path)
+	if cleanPath == "." || path.IsAbs(cleanPath) || strings.HasPrefix(cleanPath, "../") || cleanPath == ".." {
 		return []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q has unsafe path %q", kind, file.Path)}}
 	}
 	if cleanPath != expectedPath {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("output file %q path = %q, want %q", kind, file.Path, expectedPath)})
+		return issues
 	}
 	if kind == "manifest" {
 		return issues
@@ -284,7 +319,7 @@ func validateOutputFile(dir string, kind string, expectedPath string, file outpu
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("output file %q sha256 must not be empty", kind)})
 		return issues
 	}
-	actual, err := fileSHA256(filepath.Join(dir, cleanPath))
+	actual, err := fileSHA256(filepath.Join(dir, filepath.FromSlash(cleanPath)))
 	if err != nil {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("output file %q sha256 could not be checked: %v", kind, err)})
 		return issues

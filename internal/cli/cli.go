@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/philipbankier/technical-visualizer/internal/backend"
@@ -57,6 +58,14 @@ func runPipeline(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Wrote visualization bundle to %s\n", opts.OutputDir)
 	fmt.Fprintf(stdout, "Backend: %s\n", manifest.Backend.Name)
+	handoffMode := strings.ToLower(strings.TrimSpace(opts.Handoff))
+	if handoffMode == "codex" {
+		fmt.Fprintf(stdout, "Codex handoff: %s\n", filepath.Join(opts.OutputDir, "handoff", "codex-prompt.md"))
+	}
+	if handoffMode == "codex" && opts.Quick {
+		promptPath := filepath.Join(opts.OutputDir, "handoff", "codex-prompt.md")
+		fmt.Fprintf(stdout, "POSIX shell: codex -C %s \"$(cat < %s)\"\n", shellQuote(opts.OutputDir), shellQuote(promptPath))
+	}
 	return 0
 }
 
@@ -71,6 +80,8 @@ func parsePipelineArgs(args []string, stderr io.Writer) (pipeline.Options, error
 	fs.StringVar(&opts.Style, "style", "executive-dark", "visual style name")
 	fs.StringVar(&opts.Goal, "goal", "architecture-map", "artifact goal")
 	fs.BoolVar(&opts.Offline, "offline", false, "skip remote source fetching")
+	fs.StringVar(&opts.Handoff, "handoff", "", "handoff package: codex")
+	fs.BoolVar(&opts.Quick, "quick", false, "print a ready manual command for the selected handoff")
 	fs.Usage = func() { printUsage(stderr) }
 	if err := fs.Parse(args); err != nil {
 		return pipeline.Options{}, err
@@ -100,6 +111,8 @@ Common flags:
   --style         Visual style name.
   --goal          Artifact goal.
   --offline       Skip remote source fetching.
+  --handoff       Optional handoff package, currently codex.
+  --quick         Print a ready manual command for the selected handoff.
 
 Unsupported in v0.1:
   gather, packet, render, codex image generation
@@ -131,4 +144,11 @@ func printNamedCapability(w io.Writer, name string, capability backend.Capabilit
 		reason = "no details"
 	}
 	fmt.Fprintf(w, "%s: %s (%s, %s; %s)\n", name, status, remote, reason, note)
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
