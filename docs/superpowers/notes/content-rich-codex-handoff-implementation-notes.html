@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Content-Rich Codex Handoff Implementation Notes</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+      body {
+        max-width: 960px;
+        margin: 40px auto;
+        padding: 0 24px 48px;
+      }
+      h1,
+      h2 {
+        line-height: 1.15;
+      }
+      section {
+        border-top: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        margin-top: 28px;
+        padding-top: 18px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.95em;
+      }
+      .entry {
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+        margin: 14px 0;
+        padding: 12px 14px;
+      }
+      .meta {
+        color: color-mix(in srgb, CanvasText 62%, transparent);
+        font-size: 0.9em;
+        margin-bottom: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Content-Rich Codex Handoff Implementation Notes</h1>
+    <p>
+      Running notes for the content-rich packet, Codex handoff package, quick mode,
+      manifest next steps, and scaffold upgrade work. Future implementation tasks
+      should append to this file when behavior diverges from or interprets the spec.
+    </p>
+
+    <section>
+      <h2>Design Decisions</h2>
+      <div class="entry">
+        <div class="meta">2026-05-26 planning</div>
+        <p>
+          The first implementation plan treats <code>--handoff codex --quick</code> as the only
+          supported quick-mode shape. Bare <code>--quick</code> should fail clearly instead of
+          implying a handoff mode silently.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-26 planning</div>
+        <p>
+          The plan starts with packet schema and dense markdown extraction before Codex prompt
+          files. A polished handoff around a shallow packet would improve ergonomics but not
+          output quality.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Deviations</h2>
+      <div class="entry">
+        <div class="meta">2026-05-26 planning</div>
+        <p>
+          Fallback PNG rendering is intentionally deferred from the first implementation pass.
+          The spec marks it lower priority, and the plan focuses first on packet quality,
+          scaffold usefulness, manifest guidance, and Codex handoff files.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Tradeoffs</h2>
+      <div class="entry">
+        <div class="meta">2026-05-26 planning</div>
+        <p>
+          The plan uses deterministic local extraction rather than an LLM summarization stage.
+          This keeps privacy and repeatability aligned with the existing release promise, at the
+          cost of heuristic extraction instead of perfect semantic understanding.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Open Questions</h2>
+      <div class="entry">
+        <div class="meta">2026-05-26 planning</div>
+        <p>
+          Confirm after the first implementation pass whether fallback PNG should become a
+          browser-rendered screenshot of <code>scaffold.html</code> or a pure Go text-rendered
+          image.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Validation Evidence</h2>
+      <div class="entry">
+        <div class="meta">2026-05-26 planning</div>
+        <p>
+          Plan requires strict TDD: every behavior task starts with a failing test, records the
+          red output, then implements the smallest passing change before refactor.
+        </p>
+      </div>
+    </section>
+  </body>
+</html>

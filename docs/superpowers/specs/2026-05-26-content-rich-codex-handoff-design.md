@@ -2,7 +2,7 @@
 
 Date: 2026-05-26
 
-Status: design approved in chat, written spec pending user review before implementation planning.
+Status: approved for implementation planning.
 
 Branch: `codex/content-rich-codex-handoff-spec`
 
