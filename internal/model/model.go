@@ -47,22 +47,29 @@ type Redaction struct {
 }
 
 type VisualPacket struct {
-	SchemaVersion string      `json:"schema_version"`
-	ArtifactGoal  string      `json:"artifact_goal"`
-	Audience      string      `json:"audience"`
-	Title         string      `json:"title"`
-	Thesis        string      `json:"thesis"`
-	RequiredText  []string    `json:"required_text"`
-	RankedClaims  []Claim     `json:"ranked_claims"`
-	Facts         []Fact      `json:"facts,omitempty"`
-	Sections      []Section   `json:"sections,omitempty"`
-	Risks         []Risk      `json:"risks,omitempty"`
-	Tradeoffs     []Tradeoff  `json:"tradeoffs,omitempty"`
-	Unknowns      []Unknown   `json:"unknowns,omitempty"`
-	Layout        LayoutSpec  `json:"layout"`
-	Style         StyleSpec   `json:"style"`
-	Constraints   []string    `json:"constraints,omitempty"`
-	SourceRefs    []SourceRef `json:"source_refs,omitempty"`
+	SchemaVersion string          `json:"schema_version"`
+	ArtifactGoal  string          `json:"artifact_goal"`
+	Audience      string          `json:"audience"`
+	Title         string          `json:"title"`
+	Thesis        string          `json:"thesis"`
+	RequiredText  []string        `json:"required_text"`
+	RankedClaims  []Claim         `json:"ranked_claims"`
+	Facts         []Fact          `json:"facts,omitempty"`
+	Sections      []Section       `json:"sections,omitempty"`
+	ContentBlocks []ContentBlock  `json:"content_blocks,omitempty"`
+	Metrics       []Metric        `json:"metrics,omitempty"`
+	Timeline      []TimelineEvent `json:"timeline,omitempty"`
+	Entities      []Entity        `json:"entities,omitempty"`
+	Tables        []PacketTable   `json:"tables,omitempty"`
+	Diagrams      []Diagram       `json:"diagrams,omitempty"`
+	OpenQuestions []OpenQuestion  `json:"open_questions,omitempty"`
+	Risks         []Risk          `json:"risks,omitempty"`
+	Tradeoffs     []Tradeoff      `json:"tradeoffs,omitempty"`
+	Unknowns      []Unknown       `json:"unknowns,omitempty"`
+	Layout        LayoutSpec      `json:"layout"`
+	Style         StyleSpec       `json:"style"`
+	Constraints   []string        `json:"constraints,omitempty"`
+	SourceRefs    []SourceRef     `json:"source_refs,omitempty"`
 }
 
 type Claim struct {
@@ -84,6 +91,64 @@ type Section struct {
 	Title   string   `json:"title"`
 	Summary string   `json:"summary"`
 	Items   []string `json:"items,omitempty"`
+}
+
+type ContentBlock struct {
+	ID         string   `json:"id"`
+	Kind       string   `json:"kind"`
+	Title      string   `json:"title,omitempty"`
+	Summary    string   `json:"summary,omitempty"`
+	Text       string   `json:"text,omitempty"`
+	Items      []string `json:"items,omitempty"`
+	SourceRefs []string `json:"source_refs,omitempty"`
+}
+
+type Metric struct {
+	ID         string   `json:"id"`
+	Label      string   `json:"label"`
+	Value      string   `json:"value"`
+	Unit       string   `json:"unit,omitempty"`
+	Context    string   `json:"context,omitempty"`
+	SourceRefs []string `json:"source_refs,omitempty"`
+}
+
+type TimelineEvent struct {
+	ID         string   `json:"id"`
+	Date       string   `json:"date,omitempty"`
+	Label      string   `json:"label"`
+	Summary    string   `json:"summary,omitempty"`
+	SourceRefs []string `json:"source_refs,omitempty"`
+}
+
+type Entity struct {
+	ID         string   `json:"id"`
+	Kind       string   `json:"kind"`
+	Name       string   `json:"name"`
+	Detail     string   `json:"detail,omitempty"`
+	SourceRefs []string `json:"source_refs,omitempty"`
+}
+
+type PacketTable struct {
+	ID         string     `json:"id"`
+	Title      string     `json:"title,omitempty"`
+	Headers    []string   `json:"headers,omitempty"`
+	Rows       [][]string `json:"rows,omitempty"`
+	SourceRefs []string   `json:"source_refs,omitempty"`
+}
+
+type Diagram struct {
+	ID         string   `json:"id"`
+	Title      string   `json:"title,omitempty"`
+	Kind       string   `json:"kind"`
+	Text       string   `json:"text"`
+	SourceRefs []string `json:"source_refs,omitempty"`
+}
+
+type OpenQuestion struct {
+	ID         string   `json:"id"`
+	Text       string   `json:"text"`
+	Context    string   `json:"context,omitempty"`
+	SourceRefs []string `json:"source_refs,omitempty"`
 }
 
 type Risk struct {
