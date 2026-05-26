@@ -180,6 +180,18 @@ func TestRunLocalHTMLWritesBundleAndManifest(t *testing.T) {
 	if len(manifest.Warnings) != 0 {
 		t.Fatalf("manifest warnings = %#v, want empty warnings", manifest.Warnings)
 	}
+	if manifest.Audit.ToolVersion != "0.1.0" {
+		t.Fatalf("manifest audit tool version = %q, want 0.1.0", manifest.Audit.ToolVersion)
+	}
+	if manifest.Audit.RequestedBackend != "local" || manifest.Audit.SelectedBackend != manifest.Backend.Name {
+		t.Fatalf("manifest audit backend = %#v, want requested local and selected %q", manifest.Audit, manifest.Backend.Name)
+	}
+	if manifest.Audit.SourceCount != len(manifest.Sources) || manifest.Audit.EvidenceItemCount == 0 || manifest.Audit.WarningCount != len(manifest.Warnings) {
+		t.Fatalf("manifest audit counts = %#v, sources=%d warnings=%d", manifest.Audit, len(manifest.Sources), len(manifest.Warnings))
+	}
+	if manifest.Audit.RemoteImageAttempted || manifest.Audit.FallbackUsed || manifest.Audit.PromptTruncated {
+		t.Fatalf("manifest audit flags = %#v, want false remote/fallback/truncation", manifest.Audit)
+	}
 	for _, kind := range []string{"scaffold", "visual_packet", "image", "manifest"} {
 		if !hasOutputKind(manifest.OutputFiles, kind) {
 			t.Fatalf("manifest output files missing kind %q: %#v", kind, manifest.OutputFiles)
@@ -196,6 +208,7 @@ func TestRunLocalHTMLWritesBundleAndManifest(t *testing.T) {
 		Backend     struct{ Name string } `json:"backend"`
 		Style       string                `json:"style"`
 		Warnings    json.RawMessage       `json:"warnings"`
+		Audit       model.ManifestAudit   `json:"audit"`
 		OutputFiles []struct {
 			Kind string `json:"kind"`
 			Path string `json:"path"`
@@ -209,6 +222,9 @@ func TestRunLocalHTMLWritesBundleAndManifest(t *testing.T) {
 	}
 	if len(diskManifest.Warnings) == 0 || string(diskManifest.Warnings) != "[]" {
 		t.Fatalf("disk manifest warnings = %s, want [] in %s", diskManifest.Warnings, data)
+	}
+	if diskManifest.Audit.ToolVersion != "0.1.0" || diskManifest.Audit.RequestedBackend != "local" || diskManifest.Audit.SelectedBackend != "local" {
+		t.Fatalf("disk manifest audit missing baseline fields: %s", data)
 	}
 	if len(diskManifest.OutputFiles) < 4 {
 		t.Fatalf("disk manifest output_files = %#v, want at least four files", diskManifest.OutputFiles)

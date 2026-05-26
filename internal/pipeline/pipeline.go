@@ -20,6 +20,8 @@ import (
 	"github.com/philipbankier/technical-visualizer/internal/source"
 )
 
+const toolVersion = "0.1.0"
+
 type Options struct {
 	Sources   []string
 	OutputDir string
@@ -83,13 +85,15 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		return model.Manifest{}, err
 	}
 
+	warnings := append(append([]string(nil), publicEvidence.Warnings...), backendWarnings...)
 	manifest := model.Manifest{
 		SchemaVersion: "manifest/v1",
 		Sources:       publicEvidence.Sources,
 		Backend:       backendInfo,
 		Renderer:      opts.Renderer,
 		Style:         opts.Style,
-		Warnings:      append(append([]string(nil), publicEvidence.Warnings...), backendWarnings...),
+		Warnings:      warnings,
+		Audit:         baselineAudit(opts, backendInfo, publicEvidence, warnings),
 		OutputFiles: []model.OutputFile{
 			outputFile("scaffold", "scaffold.html", scaffoldPath),
 			outputFile("visual_packet", "visual-packet.json", packetPath),
@@ -105,6 +109,21 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		return manifest, fmt.Errorf("quality validation failed: %s", formatIssues(issues))
 	}
 	return manifest, nil
+}
+
+func baselineAudit(opts Options, backendInfo model.BackendInfo, publicEvidence model.EvidenceBundle, warnings []string) model.ManifestAudit {
+	return model.ManifestAudit{
+		ToolVersion:          toolVersion,
+		RequestedBackend:     opts.Backend,
+		SelectedBackend:      backendInfo.Name,
+		SourceCount:          len(publicEvidence.Sources),
+		EvidenceItemCount:    len(publicEvidence.Items),
+		WarningCount:         len(warnings),
+		RedactionCount:       len(publicEvidence.Redactions),
+		RemoteImageAttempted: backendInfo.Name == "openai",
+		FallbackUsed:         false,
+		PromptTruncated:      false,
+	}
 }
 
 func normalizeOptions(opts Options) Options {
@@ -343,13 +362,14 @@ func writeJSONFile(path string, value any) ([]byte, error) {
 
 func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {
 	type manifestJSON struct {
-		SchemaVersion string             `json:"schema_version"`
-		Sources       []model.SourceSpec `json:"sources"`
-		Backend       model.BackendInfo  `json:"backend"`
-		Renderer      string             `json:"renderer"`
-		Style         string             `json:"style"`
-		Warnings      []string           `json:"warnings"`
-		OutputFiles   []model.OutputFile `json:"output_files"`
+		SchemaVersion string              `json:"schema_version"`
+		Sources       []model.SourceSpec  `json:"sources"`
+		Backend       model.BackendInfo   `json:"backend"`
+		Renderer      string              `json:"renderer"`
+		Style         string              `json:"style"`
+		Warnings      []string            `json:"warnings"`
+		Audit         model.ManifestAudit `json:"audit"`
+		OutputFiles   []model.OutputFile  `json:"output_files"`
 	}
 	warnings := append([]string(nil), manifest.Warnings...)
 	if warnings == nil {
@@ -362,6 +382,7 @@ func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {
 		Renderer:      manifest.Renderer,
 		Style:         manifest.Style,
 		Warnings:      warnings,
+		Audit:         manifest.Audit,
 		OutputFiles:   manifest.OutputFiles,
 	})
 }

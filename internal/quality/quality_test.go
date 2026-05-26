@@ -185,6 +185,43 @@ func TestValidateBundleFailsWhenManifestAuditIsInvalid(t *testing.T) {
 	}
 }
 
+func TestValidateBundleFailsWhenManifestAuditFieldsAreMissing(t *testing.T) {
+	for _, field := range []string{
+		"tool_version",
+		"requested_backend",
+		"selected_backend",
+		"source_count",
+		"evidence_item_count",
+		"warning_count",
+		"redaction_count",
+		"remote_image_attempted",
+		"fallback_used",
+		"prompt_truncated",
+	} {
+		t.Run(field, func(t *testing.T) {
+			dir := t.TempDir()
+			packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+			writeTestPNG(t, filepath.Join(dir, "final.png"))
+			writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+			writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><html><body>Acme Map</body></html>")
+			writeValidManifest(t, dir)
+
+			manifest := readManifestFixture(t, dir)
+			audit, ok := manifest["audit"].(map[string]any)
+			if !ok {
+				t.Fatalf("audit fixture = %#v, want object", manifest["audit"])
+			}
+			delete(audit, field)
+			writeManifestFixture(t, dir, manifest)
+
+			issues := ValidateBundle(dir)
+			if !hasIssueContaining(issues, "manifest.json", "audit."+field) {
+				t.Fatalf("ValidateBundle() issues = %#v, want missing audit field issue for %q", issues, field)
+			}
+		})
+	}
+}
+
 func TestValidateBundleFailsWhenManifestSourceIsInvalid(t *testing.T) {
 	cases := []struct {
 		name   string
