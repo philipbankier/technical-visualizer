@@ -120,6 +120,7 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		Renderer:      opts.Renderer,
 		Style:         opts.Style,
 		Warnings:      warnings,
+		NextSteps:     nextSteps(opts, imageResult),
 		Audit:         baselineAudit(opts, imageResult, publicEvidence, warnings),
 		OutputFiles: []model.OutputFile{
 			outputFile("scaffold", "scaffold.html", scaffoldPath),
@@ -152,6 +153,25 @@ func baselineAudit(opts Options, imageResult imageGenerationResult, publicEviden
 		PromptTruncated:         imageResult.PromptTruncated,
 		PromptTruncationMessage: imageResult.PromptTruncationMessage,
 	}
+}
+
+func nextSteps(opts Options, imageResult imageGenerationResult) []string {
+	var steps []string
+	if imageResult.BackendInfo.Name == "local" {
+		steps = append(steps, "Open scaffold.html first; it is the primary local artifact for this run.")
+		steps = append(steps, "For a polished OpenAI image, set OPENAI_API_KEY and rerun with --backend openai --renderer image.")
+		steps = append(steps, "For Codex handoff before CLI handoff support, use interactive Codex with scaffold.html and visual-packet.json.")
+	}
+	if imageResult.BackendInfo.Name == "openai" {
+		steps = append(steps, "Inspect final.png for the generated image and manifest.json for source and backend audit details.")
+	}
+	if imageResult.FallbackUsed {
+		steps = append(steps, "The run used a local fallback; use explicit --backend openai for a polished image path or interactive Codex with scaffold.html and visual-packet.json.")
+	}
+	if opts.Offline {
+		steps = append(steps, "offline mode was enabled; no remote source fetching or remote image generation was performed.")
+	}
+	return steps
 }
 
 func normalizeOptions(opts Options) Options {
@@ -443,6 +463,7 @@ func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {
 		Renderer      string              `json:"renderer"`
 		Style         string              `json:"style"`
 		Warnings      []string            `json:"warnings"`
+		NextSteps     []string            `json:"next_steps,omitempty"`
 		Audit         model.ManifestAudit `json:"audit"`
 		OutputFiles   []model.OutputFile  `json:"output_files"`
 	}
@@ -457,6 +478,7 @@ func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {
 		Renderer:      manifest.Renderer,
 		Style:         manifest.Style,
 		Warnings:      warnings,
+		NextSteps:     manifest.NextSteps,
 		Audit:         manifest.Audit,
 		OutputFiles:   manifest.OutputFiles,
 	})

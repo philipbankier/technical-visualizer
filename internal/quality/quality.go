@@ -75,6 +75,7 @@ type manifestSummary struct {
 	Renderer      string              `json:"renderer"`
 	Style         string              `json:"style"`
 	Warnings      []string            `json:"warnings"`
+	NextSteps     []string            `json:"next_steps"`
 	Audit         auditSummary        `json:"audit"`
 	OutputFiles   []outputFileSummary `json:"output_files"`
 }
@@ -139,6 +140,9 @@ func validateManifest(dir string) []Issue {
 	}
 	if !validStyle(manifest.Style) {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("style = %q is not a valid v0.1 style", manifest.Style)})
+	}
+	if len(manifest.NextSteps) == 0 {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "next_steps must not be empty"})
 	}
 	issues = append(issues, validateAudit(manifest.Audit, len(manifest.Sources), manifest.Backend.Name, len(manifest.Warnings))...)
 

@@ -82,6 +82,26 @@ func TestValidateBundleFailsWhenManifestSHAIsWrong(t *testing.T) {
 	}
 }
 
+func TestValidateBundleRequiresManifestNextSteps(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		SchemaVersion: "visual-packet/v1",
+		Title:         "Acme Map",
+		RequiredText:  []string{"Acme Map"},
+	}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><title>Acme Map</title><body>Acme Map</body>")
+	manifest := validManifest(dir)
+	manifest.NextSteps = nil
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "next_steps") {
+		t.Fatalf("ValidateBundle issues = %#v, want next_steps issue", issues)
+	}
+}
+
 func TestValidateBundleAcceptsManifestAuditFields(t *testing.T) {
 	dir := t.TempDir()
 	packet := model.VisualPacket{
@@ -365,6 +385,9 @@ func validManifest(dir string) model.Manifest {
 		Backend:  model.BackendInfo{Name: "local", Remote: false},
 		Renderer: "html",
 		Style:    "executive-dark",
+		NextSteps: []string{
+			"Open scaffold.html first.",
+		},
 		Audit: model.ManifestAudit{
 			ToolVersion:          "0.1.0",
 			RequestedBackend:     "local",

@@ -396,6 +396,73 @@ func TestRunLocalHTMLWritesBundleAndManifest(t *testing.T) {
 	}
 }
 
+func TestRunAddsLocalNextSteps(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "notes.md")},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	assertNextStepContains(t, manifest.NextSteps, "scaffold.html")
+	assertNextStepContains(t, manifest.NextSteps, "visual-packet.json")
+	assertNoNextStepContains(t, manifest.NextSteps, "--handoff codex")
+	assertNextStepContains(t, manifest.NextSteps, "--backend openai --renderer image")
+}
+
+func TestRunAddsOfflineNextStep(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "notes.md")},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Offline:   true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	assertNextStepContains(t, manifest.NextSteps, "offline")
+}
+
+func TestNextStepsDescribeOpenAIAndFallbackRuns(t *testing.T) {
+	openAISteps := nextSteps(Options{}, imageGenerationResult{
+		BackendInfo: model.BackendInfo{Name: "openai", Remote: true, Model: "gpt-image-2"},
+	})
+	assertNextStepContains(t, openAISteps, "final.png")
+	assertNextStepContains(t, openAISteps, "manifest.json")
+
+	fallbackSteps := nextSteps(Options{}, imageGenerationResult{
+		BackendInfo:  model.BackendInfo{Name: "local", Remote: false},
+		FallbackUsed: true,
+	})
+	assertNextStepContains(t, fallbackSteps, "fallback")
+	assertNextStepContains(t, fallbackSteps, "--backend openai")
+	assertNoNextStepContains(t, fallbackSteps, "--handoff codex")
+}
+
+func assertNextStepContains(t *testing.T, steps []string, want string) {
+	t.Helper()
+	for _, step := range steps {
+		if strings.Contains(step, want) {
+			return
+		}
+	}
+	t.Fatalf("next_steps missing %q in %#v", want, steps)
+}
+
+func assertNoNextStepContains(t *testing.T, steps []string, want string) {
+	t.Helper()
+	for _, step := range steps {
+		if strings.Contains(step, want) {
+			t.Fatalf("next_steps unexpectedly contains %q in %#v", want, steps)
+		}
+	}
+}
+
 func hasOutputKind(files []model.OutputFile, kind string) bool {
 	return slices.ContainsFunc(files, func(file model.OutputFile) bool {
 		return file.Kind == kind

@@ -88,6 +88,29 @@ func TestManifestRecordsOutputFiles(t *testing.T) {
 	}
 }
 
+func TestManifestNextStepsRoundTrip(t *testing.T) {
+	manifest := Manifest{
+		SchemaVersion: "manifest/v1",
+		Backend:       BackendInfo{Name: "local"},
+		Renderer:      "html",
+		Style:         "executive-dark",
+		Audit:         ManifestAudit{ToolVersion: "0.1.0"},
+		OutputFiles:   []OutputFile{{Kind: "manifest", Path: "manifest.json"}},
+		NextSteps:     []string{"Open scaffold.html first.", "Use visual-packet.json for agent handoff."},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	var decoded Manifest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if len(decoded.NextSteps) != 2 {
+		t.Fatalf("NextSteps length = %d, want 2", len(decoded.NextSteps))
+	}
+}
+
 func TestManifestAuditFieldsMarshal(t *testing.T) {
 	manifest := Manifest{
 		SchemaVersion: "manifest/v1",

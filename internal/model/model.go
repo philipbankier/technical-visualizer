@@ -196,6 +196,7 @@ type Manifest struct {
 	Renderer      string        `json:"renderer"`
 	Style         string        `json:"style"`
 	Warnings      []string      `json:"warnings,omitempty"`
+	NextSteps     []string      `json:"next_steps,omitempty"`
 	Audit         ManifestAudit `json:"audit"`
 	OutputFiles   []OutputFile  `json:"output_files"`
 }
