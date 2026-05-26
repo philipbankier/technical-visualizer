@@ -74,7 +74,23 @@ type manifestSummary struct {
 	Backend       backendSummary      `json:"backend"`
 	Renderer      string              `json:"renderer"`
 	Style         string              `json:"style"`
+	Warnings      []string            `json:"warnings"`
+	Audit         auditSummary        `json:"audit"`
 	OutputFiles   []outputFileSummary `json:"output_files"`
+}
+
+type auditSummary struct {
+	ToolVersion             *string `json:"tool_version"`
+	RequestedBackend        *string `json:"requested_backend"`
+	SelectedBackend         *string `json:"selected_backend"`
+	SourceCount             *int    `json:"source_count"`
+	EvidenceItemCount       *int    `json:"evidence_item_count"`
+	WarningCount            *int    `json:"warning_count"`
+	RedactionCount          *int    `json:"redaction_count"`
+	RemoteImageAttempted    *bool   `json:"remote_image_attempted"`
+	FallbackUsed            *bool   `json:"fallback_used"`
+	PromptTruncated         *bool   `json:"prompt_truncated"`
+	PromptTruncationMessage *string `json:"prompt_truncation_message"`
 }
 
 type sourceSummary struct {
@@ -122,8 +138,9 @@ func validateManifest(dir string) []Issue {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("renderer = %q, want html, hybrid, or image", manifest.Renderer)})
 	}
 	if !validStyle(manifest.Style) {
-		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("style = %q is not a valid v1 style", manifest.Style)})
+		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("style = %q is not a valid v0.1 style", manifest.Style)})
 	}
+	issues = append(issues, validateAudit(manifest.Audit, len(manifest.Sources), manifest.Backend.Name, len(manifest.Warnings))...)
 
 	outputs := map[string]outputFileSummary{}
 	for _, file := range manifest.OutputFiles {
@@ -147,6 +164,70 @@ func validateManifest(dir string) []Issue {
 	}
 
 	return issues
+}
+
+func validateAudit(audit auditSummary, sourceCount int, selectedBackend string, warningCount int) []Issue {
+	var issues []Issue
+	requireString(&issues, audit.ToolVersion, "audit.tool_version")
+	requireString(&issues, audit.RequestedBackend, "audit.requested_backend")
+	auditSelectedBackend := requireString(&issues, audit.SelectedBackend, "audit.selected_backend")
+	if auditSelectedBackend != "" && auditSelectedBackend != strings.TrimSpace(selectedBackend) {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.selected_backend must match backend.name"})
+	}
+	auditSourceCount, hasSourceCount := requireInt(&issues, audit.SourceCount, "audit.source_count")
+	if hasSourceCount && auditSourceCount != sourceCount {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.source_count must match sources length"})
+	}
+	evidenceItemCount, hasEvidenceItemCount := requireInt(&issues, audit.EvidenceItemCount, "audit.evidence_item_count")
+	if hasEvidenceItemCount && evidenceItemCount < 0 {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.evidence_item_count must not be negative"})
+	}
+	auditWarningCount, hasWarningCount := requireInt(&issues, audit.WarningCount, "audit.warning_count")
+	if hasWarningCount && auditWarningCount < 0 {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.warning_count must not be negative"})
+	}
+	if hasWarningCount && auditWarningCount >= 0 && auditWarningCount != warningCount {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.warning_count must match warnings length"})
+	}
+	redactionCount, hasRedactionCount := requireInt(&issues, audit.RedactionCount, "audit.redaction_count")
+	if hasRedactionCount && redactionCount < 0 {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.redaction_count must not be negative"})
+	}
+	requireBool(&issues, audit.RemoteImageAttempted, "audit.remote_image_attempted")
+	requireBool(&issues, audit.FallbackUsed, "audit.fallback_used")
+	promptTruncated, hasPromptTruncated := requireBool(&issues, audit.PromptTruncated, "audit.prompt_truncated")
+	if hasPromptTruncated && promptTruncated && (audit.PromptTruncationMessage == nil || strings.TrimSpace(*audit.PromptTruncationMessage) == "") {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.prompt_truncation_message must be set when prompt_truncated is true"})
+	}
+	return issues
+}
+
+func requireString(issues *[]Issue, value *string, name string) string {
+	if value == nil {
+		*issues = append(*issues, Issue{Path: "manifest.json", Message: name + " must be set"})
+		return ""
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		*issues = append(*issues, Issue{Path: "manifest.json", Message: name + " must not be empty"})
+	}
+	return trimmed
+}
+
+func requireInt(issues *[]Issue, value *int, name string) (int, bool) {
+	if value == nil {
+		*issues = append(*issues, Issue{Path: "manifest.json", Message: name + " must be set"})
+		return 0, false
+	}
+	return *value, true
+}
+
+func requireBool(issues *[]Issue, value *bool, name string) (bool, bool) {
+	if value == nil {
+		*issues = append(*issues, Issue{Path: "manifest.json", Message: name + " must be set"})
+		return false, false
+	}
+	return *value, true
 }
 
 func validateSource(index int, source sourceSummary) []Issue {

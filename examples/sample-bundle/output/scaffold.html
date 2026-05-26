@@ -1,20 +1,9 @@
-package render
-
-import (
-	"html/template"
-	"io"
-	"os"
-	"path/filepath"
-
-	"github.com/philipbankier/technical-visualizer/internal/model"
-)
-
-var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype html>
+<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{.Title}}</title>
+  <title>Technical Map: notes.md</title>
   <style>
     :root {
       color-scheme: dark;
@@ -104,39 +93,37 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
   <main>
     <header>
       <div class="label">Visualization Scaffold</div>
-      <h1>{{.Title}}</h1>
-      <p>{{.Thesis}}</p>
+      <h1>Technical Map: notes.md</h1>
+      <p>notes.md is mapped from the primary source with 1 evidence item, preserving source-backed claims and visible uncertainty.</p>
       <div class="meta">
-        <span class="pill">goal: {{.ArtifactGoal}}</span>
-        <span class="pill">audience: {{.Audience}}</span>
-        <span class="pill">style: {{.Style.Name}}</span>
-        <span class="pill">renderer: {{.Style.Renderer}}</span>
-        <span class="pill">layout: {{.Layout.Format}} {{.Layout.Orientation}}</span>
+        <span class="pill">goal: architecture-map</span>
+        <span class="pill">audience: technical decision maker</span>
+        <span class="pill">style: executive-dark</span>
+        <span class="pill">renderer: html</span>
+        <span class="pill">layout: single-image-infographic landscape</span>
       </div>
     </header>
 
     <section>
       <h2>Required Text</h2>
       <ul>
-        {{range .RequiredText}}<li>{{.}}</li>{{else}}<li>No required text supplied.</li>{{end}}
+        <li>Technical Map: notes.md</li><li>notes.md</li><li>Acme Orders Service</li><li>Components</li><li>Risks</li>
       </ul>
     </section>
 
     <section>
       <h2>Claims</h2>
       <ul>
-{{range .RankedClaims}}        <li><span class="text">{{.Text}}</span><span class="label">confidence: {{.Confidence}} | kind: {{.Kind}} | refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-{{else}}        <li>No ranked claims supplied.</li>
-{{end}}
+        <li><span class="text">notes.md describes Components: - HTTP API receives order submissions.</span><span class="label">confidence: source-backed | kind: evidence | refs: src-c5ed5ffb78af </span></li>
+
       </ul>
     </section>
 
     <section>
       <h2>Facts</h2>
       <ul>
-{{range .Facts}}        <li><span class="text">{{.Text}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-{{else}}        <li>No facts supplied.</li>
-{{end}}
+        <li><span class="text">notes.md evidence states Components: - HTTP API receives order submissions.</span><span class="label">refs: src-c5ed5ffb78af </span></li>
+
       </ul>
     </section>
 
@@ -144,27 +131,24 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
       <section>
         <h2>Risks</h2>
         <ul>
-{{range .Risks}}          <li><span class="text">{{.Text}}</span><span class="label">severity: {{.Severity}} | refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-{{else}}          <li>No risks supplied.</li>
-{{end}}
+          <li>No risks supplied.</li>
+
         </ul>
       </section>
 
       <section>
         <h2>Tradeoffs</h2>
         <ul>
-{{range .Tradeoffs}}          <li><span class="text">{{.Choice}}</span><span class="text">{{.Reason}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-{{else}}          <li>No tradeoffs supplied.</li>
-{{end}}
+          <li>No tradeoffs supplied.</li>
+
         </ul>
       </section>
 
       <section>
         <h2>Unknowns</h2>
         <ul>
-{{range .Unknowns}}          <li><span class="text">{{.Text}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-{{else}}          <li>No unknowns supplied.</li>
-{{end}}
+          <li>No unknowns supplied.</li>
+
         </ul>
       </section>
     </div>
@@ -172,38 +156,18 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
     <section>
       <h2>Source References</h2>
       <ul>
-{{range .SourceRefs}}        <li><span class="text">{{.ID}} | {{.SourceID}} | {{.Label}}</span><span class="label">{{.Locator}}</span></li>
-{{else}}        <li>No source references supplied.</li>
-{{end}}
+        <li><span class="text">src-f8e0c45f0910 | src-f8e0c45f0910 | notes.md</span><span class="label">examples/sample-bundle/input/notes.md</span></li>
+        <li><span class="text">src-c5ed5ffb78af | src-f8e0c45f0910 | notes.md</span><span class="label">notes.md</span></li>
+
       </ul>
     </section>
 
     <section>
       <h2>Constraints</h2>
       <ul>
-        {{range .Constraints}}<li>{{.}}</li>{{else}}<li>No constraints supplied.</li>{{end}}
+        <li>Do not invent APIs, metrics, product names, source names, citations, or claims not present in source evidence.</li><li>Every factual claim must use listed source refs or be marked as a risk, unknown, or assumption.</li><li>Do not include credentials, secrets, or redacted values.</li><li>Preserve required text exactly in the final artifact.</li>
       </ul>
     </section>
   </main>
 </body>
 </html>
-`))
-
-func WriteScaffold(w io.Writer, packet model.VisualPacket) error {
-	return scaffoldTemplate.Execute(w, packet)
-}
-
-func WriteScaffoldFile(path string, packet model.VisualPacket) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-
-	// #nosec G304 -- path is the caller-selected bundle output file.
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	return WriteScaffold(file, packet)
-}

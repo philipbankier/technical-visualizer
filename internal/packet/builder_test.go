@@ -48,7 +48,7 @@ func TestBuildCreatesSourceSpecificVisualPacket(t *testing.T) {
 		},
 		Warnings: []string{
 			"source src-acme: skipped secret-like file \".env\"",
-			"source src-acme: PDF text extraction is not implemented in v1 for \"architecture.pdf\"",
+			"source src-acme: PDF text extraction is not implemented in v0.1 for \"architecture.pdf\"",
 		},
 	}
 	opts := DefaultBuildOptions()

@@ -63,7 +63,7 @@ func gatherRemotePDF(ctx context.Context, spec model.SourceSpec, opts GatherOpti
 		return gatherResult{Warnings: []string{sourceWarning(spec, "remote PDF fetch failed for %q: %v", rawURL, err)}}
 	}
 
-	result := gatherResult{Warnings: []string{sourceWarning(spec, "PDF text extraction is not implemented in v1 for %q; downloaded %d bounded bytes and emitted no text evidence", rawURL, len(data))}}
+	result := gatherResult{Warnings: []string{sourceWarning(spec, "PDF text extraction is not implemented in v0.1 for %q; downloaded %d bounded bytes and emitted no text evidence", rawURL, len(data))}}
 	if truncated {
 		result.Warnings = append(result.Warnings, sourceWarning(spec, "remote PDF %q was truncated at MaxBytesPerFile=%d", rawURL, opts.MaxBytesPerFile))
 	}

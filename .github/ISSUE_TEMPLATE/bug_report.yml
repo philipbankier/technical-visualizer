@@ -1,0 +1,31 @@
+name: Bug report
+description: Report a reproducible problem with technical-visualizer.
+title: "bug: "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: command
+    attributes:
+      label: Command
+      description: Paste the exact command you ran.
+      render: bash
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: manifest
+    attributes:
+      label: Manifest or warnings
+      description: Paste relevant manifest warnings. Do not paste secrets.
+      render: json

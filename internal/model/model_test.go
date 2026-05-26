@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -45,5 +46,38 @@ func TestManifestRecordsOutputFiles(t *testing.T) {
 	}
 	if manifest.OutputFiles[0].Kind != "scaffold" {
 		t.Fatalf("Output kind = %q", manifest.OutputFiles[0].Kind)
+	}
+}
+
+func TestManifestAuditFieldsMarshal(t *testing.T) {
+	manifest := Manifest{
+		SchemaVersion: "manifest/v1",
+		Sources:       []SourceSpec{{ID: "src-abc", Kind: SourceMarkdown, Input: "notes.md"}},
+		Backend:       BackendInfo{Name: "local", Remote: false},
+		Renderer:      "html",
+		Style:         "analytic",
+		Audit: ManifestAudit{
+			ToolVersion:             "0.1.0",
+			RequestedBackend:        "auto",
+			SelectedBackend:         "local",
+			SourceCount:             1,
+			EvidenceItemCount:       2,
+			WarningCount:            1,
+			RedactionCount:          0,
+			RemoteImageAttempted:    true,
+			FallbackUsed:            true,
+			PromptTruncated:         true,
+			PromptTruncationMessage: "prompt truncated to fit gpt-image-2 prompt limit",
+		},
+		OutputFiles: []OutputFile{{Kind: "manifest", Path: "manifest.json"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	for _, want := range []string{`"audit"`, `"tool_version":"0.1.0"`, `"requested_backend":"auto"`, `"selected_backend":"local"`, `"source_count":1`, `"evidence_item_count":2`, `"warning_count":1`, `"remote_image_attempted":true`, `"fallback_used":true`, `"prompt_truncated":true`} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("manifest JSON missing %s: %s", want, data)
+		}
 	}
 }

@@ -20,6 +20,20 @@ import (
 	"github.com/philipbankier/technical-visualizer/internal/source"
 )
 
+const toolVersion = "0.1.0"
+
+var generatedBundleFiles = []string{"scaffold.html", "visual-packet.json", "final.png", "manifest.json"}
+
+type openAIImageBackend interface {
+	Name() string
+	Available(context.Context) backend.Capability
+	Generate(context.Context, backend.ImageRequest) error
+}
+
+var newOpenAIBackend = func() openAIImageBackend {
+	return backend.NewOpenAIBackend(backend.OpenAIConfig{})
+}
+
 type Options struct {
 	Sources   []string
 	OutputDir string
@@ -28,6 +42,15 @@ type Options struct {
 	Style     string
 	Goal      string
 	Offline   bool
+}
+
+type imageGenerationResult struct {
+	BackendInfo             model.BackendInfo
+	Warnings                []string
+	RemoteImageAttempted    bool
+	FallbackUsed            bool
+	PromptTruncated         bool
+	PromptTruncationMessage string
 }
 
 func Run(ctx context.Context, opts Options) (model.Manifest, error) {
@@ -51,6 +74,12 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		return model.Manifest{}, err
 	}
 	publicEvidence := publicEvidenceBundle(evidence)
+	if len(publicEvidence.Items) == 0 {
+		if err := removeGeneratedBundleFiles(opts.OutputDir); err != nil {
+			return model.Manifest{}, fmt.Errorf("failed to clean generated bundle files after no evidence gathered: %w", err)
+		}
+		return model.Manifest{}, fmt.Errorf("no evidence gathered from %d source(s); warnings: %s", len(publicEvidence.Sources), formatWarnings(publicEvidence.Warnings))
+	}
 	visualPacket, err := packet.Build(publicEvidence, packet.BuildOptions{
 		Goal:     opts.Goal,
 		Style:    opts.Style,
@@ -78,18 +107,20 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		return model.Manifest{}, err
 	}
 
-	backendInfo, backendWarnings, err := generateImage(ctx, opts, visualPacket, string(packetJSON), string(scaffoldHTML), imagePath)
+	imageResult, err := generateImage(ctx, opts, visualPacket, string(packetJSON), string(scaffoldHTML), imagePath)
 	if err != nil {
 		return model.Manifest{}, err
 	}
 
+	warnings := append(append([]string(nil), publicEvidence.Warnings...), imageResult.Warnings...)
 	manifest := model.Manifest{
 		SchemaVersion: "manifest/v1",
 		Sources:       publicEvidence.Sources,
-		Backend:       backendInfo,
+		Backend:       imageResult.BackendInfo,
 		Renderer:      opts.Renderer,
 		Style:         opts.Style,
-		Warnings:      append(append([]string(nil), publicEvidence.Warnings...), backendWarnings...),
+		Warnings:      warnings,
+		Audit:         baselineAudit(opts, imageResult, publicEvidence, warnings),
 		OutputFiles: []model.OutputFile{
 			outputFile("scaffold", "scaffold.html", scaffoldPath),
 			outputFile("visual_packet", "visual-packet.json", packetPath),
@@ -105,6 +136,22 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		return manifest, fmt.Errorf("quality validation failed: %s", formatIssues(issues))
 	}
 	return manifest, nil
+}
+
+func baselineAudit(opts Options, imageResult imageGenerationResult, publicEvidence model.EvidenceBundle, warnings []string) model.ManifestAudit {
+	return model.ManifestAudit{
+		ToolVersion:             toolVersion,
+		RequestedBackend:        opts.Backend,
+		SelectedBackend:         imageResult.BackendInfo.Name,
+		SourceCount:             len(publicEvidence.Sources),
+		EvidenceItemCount:       len(publicEvidence.Items),
+		WarningCount:            len(warnings),
+		RedactionCount:          len(publicEvidence.Redactions),
+		RemoteImageAttempted:    imageResult.RemoteImageAttempted,
+		FallbackUsed:            imageResult.FallbackUsed,
+		PromptTruncated:         imageResult.PromptTruncated,
+		PromptTruncationMessage: imageResult.PromptTruncationMessage,
+	}
 }
 
 func normalizeOptions(opts Options) Options {
@@ -133,7 +180,7 @@ func validateOptions(opts Options) error {
 	case "auto", "hybrid", "local", "openai":
 	default:
 		if opts.Backend == "codex" {
-			return errors.New("codex backend is doctor-only in v1; use visualize doctor to check Codex availability and --backend local or --backend openai to generate")
+			return errors.New("codex is an agent workflow in v0.1, not a direct image backend; use visualize doctor to check Codex availability, --backend openai for direct API image generation, or --backend local for private local output")
 		}
 		return fmt.Errorf("unsupported backend %q", opts.Backend)
 	}
@@ -151,43 +198,81 @@ func validateOptions(opts Options) error {
 	return nil
 }
 
-func generateImage(ctx context.Context, opts Options, visualPacket model.VisualPacket, packetJSON string, scaffoldHTML string, outputPath string) (model.BackendInfo, []string, error) {
+func generateImage(ctx context.Context, opts Options, visualPacket model.VisualPacket, packetJSON string, scaffoldHTML string, outputPath string) (imageGenerationResult, error) {
 	if opts.Backend == "local" || opts.Renderer == "html" {
 		if err := render.WriteFallbackPNG(outputPath, visualPacket); err != nil {
-			return model.BackendInfo{}, nil, err
+			return imageGenerationResult{}, err
 		}
-		return model.BackendInfo{Name: "local", Remote: false}, nil, nil
+		return imageGenerationResult{BackendInfo: model.BackendInfo{Name: "local", Remote: false}}, nil
 	}
 	if opts.Offline {
 		if err := render.WriteFallbackPNG(outputPath, visualPacket); err != nil {
-			return model.BackendInfo{}, nil, err
+			return imageGenerationResult{}, err
 		}
-		return model.BackendInfo{Name: "local", Remote: false}, []string{"offline mode used local fallback; no remote image backend was called"}, nil
+		return imageGenerationResult{
+			BackendInfo:  model.BackendInfo{Name: "local", Remote: false},
+			Warnings:     []string{"offline mode used local fallback; no remote image backend was called"},
+			FallbackUsed: true,
+		}, nil
 	}
 
 	prompt := imagePrompt(packetJSON)
 	switch opts.Backend {
 	case "openai":
-		client := backend.NewOpenAIBackend(backend.OpenAIConfig{})
-		if err := client.Generate(ctx, backend.ImageRequest{Prompt: prompt, ScaffoldHTML: scaffoldHTML, OutputPath: outputPath}); err != nil {
-			return model.BackendInfo{}, nil, err
+		client := newOpenAIBackend()
+		request := backend.ImageRequest{Prompt: prompt, ScaffoldHTML: scaffoldHTML, OutputPath: outputPath}
+		promptResult, err := backend.BuildPrompt(request)
+		if err != nil {
+			return imageGenerationResult{}, err
 		}
-		return model.BackendInfo{Name: client.Name(), Remote: true, Model: "gpt-image-2"}, nil, nil
+		if err := client.Generate(ctx, request); err != nil {
+			return imageGenerationResult{}, err
+		}
+		return imageGenerationResult{
+			BackendInfo:             model.BackendInfo{Name: client.Name(), Remote: true, Model: "gpt-image-2"},
+			RemoteImageAttempted:    true,
+			PromptTruncated:         promptResult.Truncated,
+			PromptTruncationMessage: promptResult.TruncationMessage,
+		}, nil
 	case "auto", "hybrid":
-		client := backend.NewOpenAIBackend(backend.OpenAIConfig{})
+		client := newOpenAIBackend()
 		capability := client.Available(ctx)
 		if capability.Available {
-			if err := client.Generate(ctx, backend.ImageRequest{Prompt: prompt, ScaffoldHTML: scaffoldHTML, OutputPath: outputPath}); err != nil {
-				return model.BackendInfo{}, nil, err
+			request := backend.ImageRequest{Prompt: prompt, ScaffoldHTML: scaffoldHTML, OutputPath: outputPath}
+			promptResult, err := backend.BuildPrompt(request)
+			if err != nil {
+				return imageGenerationResult{}, err
 			}
-			return model.BackendInfo{Name: client.Name(), Remote: true, Model: "gpt-image-2"}, nil, nil
+			if err := client.Generate(ctx, request); err != nil {
+				if fallbackErr := render.WriteFallbackPNG(outputPath, visualPacket); fallbackErr != nil {
+					return imageGenerationResult{}, fallbackErr
+				}
+				return imageGenerationResult{
+					BackendInfo:             model.BackendInfo{Name: "local", Remote: false},
+					Warnings:                []string{"OpenAI generation failed, used local fallback: " + err.Error()},
+					RemoteImageAttempted:    true,
+					FallbackUsed:            true,
+					PromptTruncated:         promptResult.Truncated,
+					PromptTruncationMessage: promptResult.TruncationMessage,
+				}, nil
+			}
+			return imageGenerationResult{
+				BackendInfo:             model.BackendInfo{Name: client.Name(), Remote: true, Model: "gpt-image-2"},
+				RemoteImageAttempted:    true,
+				PromptTruncated:         promptResult.Truncated,
+				PromptTruncationMessage: promptResult.TruncationMessage,
+			}, nil
 		}
 		if err := render.WriteFallbackPNG(outputPath, visualPacket); err != nil {
-			return model.BackendInfo{}, nil, err
+			return imageGenerationResult{}, err
 		}
-		return model.BackendInfo{Name: "local", Remote: false}, []string{"OpenAI backend unavailable, used local fallback: " + capability.Reason}, nil
+		return imageGenerationResult{
+			BackendInfo:  model.BackendInfo{Name: "local", Remote: false},
+			Warnings:     []string{"OpenAI backend unavailable, used local fallback: " + capability.Reason},
+			FallbackUsed: true,
+		}, nil
 	default:
-		return model.BackendInfo{}, nil, fmt.Errorf("unsupported backend %q", opts.Backend)
+		return imageGenerationResult{}, fmt.Errorf("unsupported backend %q", opts.Backend)
 	}
 }
 
@@ -341,15 +426,25 @@ func writeJSONFile(path string, value any) ([]byte, error) {
 	return data, os.WriteFile(path, data, 0o600)
 }
 
+func removeGeneratedBundleFiles(outputDir string) error {
+	for _, name := range generatedBundleFiles {
+		if err := os.Remove(filepath.Join(outputDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
 func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {
 	type manifestJSON struct {
-		SchemaVersion string             `json:"schema_version"`
-		Sources       []model.SourceSpec `json:"sources"`
-		Backend       model.BackendInfo  `json:"backend"`
-		Renderer      string             `json:"renderer"`
-		Style         string             `json:"style"`
-		Warnings      []string           `json:"warnings"`
-		OutputFiles   []model.OutputFile `json:"output_files"`
+		SchemaVersion string              `json:"schema_version"`
+		Sources       []model.SourceSpec  `json:"sources"`
+		Backend       model.BackendInfo   `json:"backend"`
+		Renderer      string              `json:"renderer"`
+		Style         string              `json:"style"`
+		Warnings      []string            `json:"warnings"`
+		Audit         model.ManifestAudit `json:"audit"`
+		OutputFiles   []model.OutputFile  `json:"output_files"`
 	}
 	warnings := append([]string(nil), manifest.Warnings...)
 	if warnings == nil {
@@ -362,6 +457,7 @@ func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {
 		Renderer:      manifest.Renderer,
 		Style:         manifest.Style,
 		Warnings:      warnings,
+		Audit:         manifest.Audit,
 		OutputFiles:   manifest.OutputFiles,
 	})
 }
@@ -386,4 +482,11 @@ func formatIssues(issues []quality.Issue) string {
 		parts = append(parts, issue.Path+": "+issue.Message)
 	}
 	return strings.Join(parts, "; ")
+}
+
+func formatWarnings(warnings []string) string {
+	if len(warnings) == 0 {
+		return "none"
+	}
+	return strings.Join(warnings, "; ")
 }

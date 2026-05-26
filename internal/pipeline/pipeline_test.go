@@ -3,12 +3,14 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/philipbankier/technical-visualizer/internal/backend"
 	"github.com/philipbankier/technical-visualizer/internal/model"
 )
 
@@ -34,8 +36,140 @@ func TestRunOfflineAutoUsesLocalBackendEvenWithAPIKey(t *testing.T) {
 	if manifest.Backend.Name != "local" || manifest.Backend.Remote {
 		t.Fatalf("manifest backend = %#v, want local non-remote", manifest.Backend)
 	}
+	if !manifest.Audit.FallbackUsed {
+		t.Fatalf("manifest audit fallback = false, want true for offline auto")
+	}
+	if manifest.Audit.WarningCount != len(manifest.Warnings) {
+		t.Fatalf("manifest audit warning count = %d, want %d", manifest.Audit.WarningCount, len(manifest.Warnings))
+	}
 	if _, err := os.Stat(filepath.Join(outputDir, "final.png")); err != nil {
 		t.Fatalf("Stat(final.png) error = %v", err)
+	}
+}
+
+func TestRunFailsWhenAllSourcesProduceNoEvidence(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "missing.md")
+	outputDir := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want no evidence error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "no evidence") {
+		t.Fatalf("Run() error = %q, want no evidence explanation", err)
+	}
+	if strings.Contains(err.Error(), root) {
+		t.Fatalf("Run() error leaked temp root %q: %v", root, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "manifest.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("manifest.json exists after no-evidence run, stat error = %v", statErr)
+	}
+}
+
+func TestRunNoEvidenceCleansStaleGeneratedBundleFiles(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nThis run writes bundle files."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err != nil {
+		t.Fatalf("initial Run() error = %v", err)
+	}
+	for _, name := range generatedBundleFiles {
+		if _, err := os.Stat(filepath.Join(outputDir, name)); err != nil {
+			t.Fatalf("Stat(%s) after initial run error = %v", name, err)
+		}
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	_, err = Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want no evidence error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "no evidence") {
+		t.Fatalf("Run() error = %q, want no evidence explanation", err)
+	}
+	for _, name := range generatedBundleFiles {
+		if _, statErr := os.Stat(filepath.Join(outputDir, name)); !os.IsNotExist(statErr) {
+			t.Fatalf("%s exists after no-evidence rerun, stat error = %v", name, statErr)
+		}
+	}
+}
+
+func TestRunAutoFallsBackWhenOpenAIGenerationFails(t *testing.T) {
+	useOpenAIFake(t, fakeOpenAIBackend{generateErr: errors.New("forced OpenAI failure")})
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nFallback should preserve a local bundle."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "auto",
+		Renderer:  "image",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if manifest.Backend.Name != "local" || manifest.Backend.Remote {
+		t.Fatalf("manifest backend = %#v, want local fallback", manifest.Backend)
+	}
+	if !manifest.Audit.RemoteImageAttempted {
+		t.Fatalf("RemoteImageAttempted = false, want true")
+	}
+	if !manifest.Audit.FallbackUsed {
+		t.Fatalf("FallbackUsed = false, want true")
+	}
+	if !hasWarningContaining(manifest.Warnings, "OpenAI generation failed") {
+		t.Fatalf("warnings = %#v, want OpenAI fallback warning", manifest.Warnings)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "final.png")); err != nil {
+		t.Fatalf("Stat(final.png) error = %v", err)
+	}
+}
+
+func TestRunExplicitOpenAIFailsWhenGenerationFails(t *testing.T) {
+	useOpenAIFake(t, fakeOpenAIBackend{generateErr: errors.New("forced OpenAI failure")})
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nExplicit OpenAI should fail fast."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "openai",
+		Renderer:  "image",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want explicit OpenAI failure")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "openai") {
+		t.Fatalf("Run() error = %q, want OpenAI explanation", err)
 	}
 }
 
@@ -56,6 +190,37 @@ func TestRunDefaultBackendStaysLocalWithAPIKey(t *testing.T) {
 	}
 	if manifest.Backend.Name != "local" || manifest.Backend.Remote {
 		t.Fatalf("manifest backend = %#v, want local non-remote", manifest.Backend)
+	}
+}
+
+func TestBaselineAuditCopiesImageGenerationMetadata(t *testing.T) {
+	imageResult := imageGenerationResult{
+		BackendInfo:             model.BackendInfo{Name: "openai", Remote: true, Model: "gpt-image-2"},
+		RemoteImageAttempted:    true,
+		FallbackUsed:            true,
+		PromptTruncated:         true,
+		PromptTruncationMessage: "prompt truncated to fit gpt-image-2 prompt limit",
+	}
+	publicEvidence := model.EvidenceBundle{
+		Sources:    []model.SourceSpec{{ID: "src-test", Kind: model.SourceMarkdown, Input: "notes.md"}},
+		Items:      []model.EvidenceItem{{ID: "item-test", SourceID: "src-test", Kind: "markdown", Title: "Notes"}},
+		Redactions: []model.Redaction{{SourceID: "src-test", Reason: "secret"}},
+	}
+	warnings := []string{"openai unavailable", "used fallback"}
+
+	audit := baselineAudit(Options{Backend: "hybrid"}, imageResult, publicEvidence, warnings)
+
+	if audit.SelectedBackend != "openai" || audit.RequestedBackend != "hybrid" {
+		t.Fatalf("audit backend = %#v, want requested hybrid and selected openai", audit)
+	}
+	if audit.SourceCount != 1 || audit.EvidenceItemCount != 1 || audit.WarningCount != 2 || audit.RedactionCount != 1 {
+		t.Fatalf("audit counts = %#v, want source=1 evidence=1 warning=2 redaction=1", audit)
+	}
+	if !audit.RemoteImageAttempted || !audit.FallbackUsed || !audit.PromptTruncated {
+		t.Fatalf("audit flags = %#v, want remote, fallback, and truncation true", audit)
+	}
+	if audit.PromptTruncationMessage != imageResult.PromptTruncationMessage {
+		t.Fatalf("audit truncation message = %q, want %q", audit.PromptTruncationMessage, imageResult.PromptTruncationMessage)
 	}
 }
 
@@ -180,6 +345,18 @@ func TestRunLocalHTMLWritesBundleAndManifest(t *testing.T) {
 	if len(manifest.Warnings) != 0 {
 		t.Fatalf("manifest warnings = %#v, want empty warnings", manifest.Warnings)
 	}
+	if manifest.Audit.ToolVersion != "0.1.0" {
+		t.Fatalf("manifest audit tool version = %q, want 0.1.0", manifest.Audit.ToolVersion)
+	}
+	if manifest.Audit.RequestedBackend != "local" || manifest.Audit.SelectedBackend != manifest.Backend.Name {
+		t.Fatalf("manifest audit backend = %#v, want requested local and selected %q", manifest.Audit, manifest.Backend.Name)
+	}
+	if manifest.Audit.SourceCount != len(manifest.Sources) || manifest.Audit.EvidenceItemCount == 0 || manifest.Audit.WarningCount != len(manifest.Warnings) {
+		t.Fatalf("manifest audit counts = %#v, sources=%d warnings=%d", manifest.Audit, len(manifest.Sources), len(manifest.Warnings))
+	}
+	if manifest.Audit.RemoteImageAttempted || manifest.Audit.FallbackUsed || manifest.Audit.PromptTruncated {
+		t.Fatalf("manifest audit flags = %#v, want false remote/fallback/truncation", manifest.Audit)
+	}
 	for _, kind := range []string{"scaffold", "visual_packet", "image", "manifest"} {
 		if !hasOutputKind(manifest.OutputFiles, kind) {
 			t.Fatalf("manifest output files missing kind %q: %#v", kind, manifest.OutputFiles)
@@ -196,6 +373,7 @@ func TestRunLocalHTMLWritesBundleAndManifest(t *testing.T) {
 		Backend     struct{ Name string } `json:"backend"`
 		Style       string                `json:"style"`
 		Warnings    json.RawMessage       `json:"warnings"`
+		Audit       model.ManifestAudit   `json:"audit"`
 		OutputFiles []struct {
 			Kind string `json:"kind"`
 			Path string `json:"path"`
@@ -210,6 +388,9 @@ func TestRunLocalHTMLWritesBundleAndManifest(t *testing.T) {
 	if len(diskManifest.Warnings) == 0 || string(diskManifest.Warnings) != "[]" {
 		t.Fatalf("disk manifest warnings = %s, want [] in %s", diskManifest.Warnings, data)
 	}
+	if diskManifest.Audit.ToolVersion != "0.1.0" || diskManifest.Audit.RequestedBackend != "local" || diskManifest.Audit.SelectedBackend != "local" {
+		t.Fatalf("disk manifest audit missing baseline fields: %s", data)
+	}
 	if len(diskManifest.OutputFiles) < 4 {
 		t.Fatalf("disk manifest output_files = %#v, want at least four files", diskManifest.OutputFiles)
 	}
@@ -219,4 +400,46 @@ func hasOutputKind(files []model.OutputFile, kind string) bool {
 	return slices.ContainsFunc(files, func(file model.OutputFile) bool {
 		return file.Kind == kind
 	})
+}
+
+type fakeOpenAIBackend struct {
+	generateErr error
+}
+
+func (fakeOpenAIBackend) Name() string {
+	return "openai"
+}
+
+func (fakeOpenAIBackend) Available(context.Context) backend.Capability {
+	return backend.Capability{
+		Available: true,
+		Name:      "openai",
+		Reason:    "fake OpenAI backend is available",
+		Remote:    true,
+	}
+}
+
+func (f fakeOpenAIBackend) Generate(context.Context, backend.ImageRequest) error {
+	return f.generateErr
+}
+
+func useOpenAIFake(t *testing.T, fake openAIImageBackend) {
+	t.Helper()
+	original := newOpenAIBackend
+	newOpenAIBackend = func() openAIImageBackend {
+		return fake
+	}
+	t.Cleanup(func() {
+		newOpenAIBackend = original
+	})
+}
+
+func hasWarningContaining(warnings []string, needle string) bool {
+	needle = strings.ToLower(needle)
+	for _, warning := range warnings {
+		if strings.Contains(strings.ToLower(warning), needle) {
+			return true
+		}
+	}
+	return false
 }

@@ -6,3 +6,4 @@
 - Keep the default backend local unless the user explicitly asks for remote image generation.
 - Do not add generated bundles, local caches, or API keys to commits.
 - Update this file when project-specific scripts, release steps, or safety defaults change.
+- Document Codex image generation as an agent handoff workflow unless a direct, tested CLI/API bridge is added.

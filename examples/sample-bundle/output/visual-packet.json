@@ -1,0 +1,93 @@
+{
+  "schema_version": "visual-packet/v1",
+  "artifact_goal": "architecture-map",
+  "audience": "technical decision maker",
+  "title": "Technical Map: notes.md",
+  "thesis": "notes.md is mapped from the primary source with 1 evidence item, preserving source-backed claims and visible uncertainty.",
+  "required_text": [
+    "Technical Map: notes.md",
+    "notes.md",
+    "Acme Orders Service",
+    "Components",
+    "Risks"
+  ],
+  "ranked_claims": [
+    {
+      "id": "claim-1",
+      "text": "notes.md describes Components: - HTTP API receives order submissions.",
+      "kind": "evidence",
+      "confidence": "source-backed",
+      "source_refs": [
+        "src-c5ed5ffb78af"
+      ]
+    }
+  ],
+  "facts": [
+    {
+      "id": "fact-1",
+      "text": "notes.md evidence states Components: - HTTP API receives order submissions.",
+      "source_refs": [
+        "src-c5ed5ffb78af"
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "id": "architecture-map",
+      "title": "Architecture Map",
+      "summary": "notes.md source structure, evidence paths, claims, and uncertainty.",
+      "items": [
+        "notes.md",
+        "Acme Orders Service",
+        "Components",
+        "Risks"
+      ]
+    },
+    {
+      "id": "sources",
+      "title": "Sources",
+      "summary": "Source-backed labels and locators used for audit.",
+      "items": [
+        "notes.md",
+        "Acme Orders Service",
+        "Components",
+        "Risks"
+      ]
+    }
+  ],
+  "layout": {
+    "format": "single-image-infographic",
+    "orientation": "landscape",
+    "regions": [
+      "title",
+      "architecture-map",
+      "claims",
+      "risks",
+      "sources"
+    ]
+  },
+  "style": {
+    "name": "executive-dark",
+    "renderer": "html"
+  },
+  "constraints": [
+    "Do not invent APIs, metrics, product names, source names, citations, or claims not present in source evidence.",
+    "Every factual claim must use listed source refs or be marked as a risk, unknown, or assumption.",
+    "Do not include credentials, secrets, or redacted values.",
+    "Preserve required text exactly in the final artifact."
+  ],
+  "source_refs": [
+    {
+      "id": "src-f8e0c45f0910",
+      "source_id": "src-f8e0c45f0910",
+      "label": "notes.md",
+      "locator": "examples/sample-bundle/input/notes.md"
+    },
+    {
+      "id": "src-c5ed5ffb78af",
+      "source_id": "src-f8e0c45f0910",
+      "label": "notes.md",
+      "locator": "notes.md"
+    }
+  ]
+}
