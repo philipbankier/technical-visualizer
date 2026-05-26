@@ -82,6 +82,109 @@ func TestValidateBundleFailsWhenManifestSHAIsWrong(t *testing.T) {
 	}
 }
 
+func TestValidateBundleAcceptsManifestAuditFields(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		SchemaVersion: "visual-packet/v1",
+		Title:         "Acme Map",
+		RequiredText:  []string{"Acme Map"},
+	}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><html><body>Acme Map</body></html>")
+	writeValidManifest(t, dir)
+
+	manifest := readManifestFixture(t, dir)
+	manifest["audit"] = map[string]any{
+		"tool_version":              "0.1.0",
+		"requested_backend":         "auto",
+		"selected_backend":          "local",
+		"source_count":              float64(1),
+		"evidence_item_count":       float64(2),
+		"warning_count":             float64(1),
+		"redaction_count":           float64(0),
+		"remote_image_attempted":    true,
+		"fallback_used":             true,
+		"prompt_truncated":          true,
+		"prompt_truncation_message": "prompt truncated to fit gpt-image-2 prompt limit",
+	}
+	writeManifestFixture(t, dir, manifest)
+
+	issues := ValidateBundle(dir)
+	if len(issues) != 0 {
+		t.Fatalf("ValidateBundle() issues = %#v, want none", issues)
+	}
+}
+
+func TestValidateBundleFailsWhenManifestAuditIsInvalid(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(map[string]any)
+		want   string
+	}{
+		{
+			name: "missing-tool-version",
+			mutate: func(audit map[string]any) {
+				audit["tool_version"] = ""
+			},
+			want: "audit.tool_version",
+		},
+		{
+			name: "backend-mismatch",
+			mutate: func(audit map[string]any) {
+				audit["selected_backend"] = "openai"
+			},
+			want: "audit.selected_backend",
+		},
+		{
+			name: "source-count-mismatch",
+			mutate: func(audit map[string]any) {
+				audit["source_count"] = float64(2)
+			},
+			want: "audit.source_count",
+		},
+		{
+			name: "negative-count",
+			mutate: func(audit map[string]any) {
+				audit["evidence_item_count"] = float64(-1)
+			},
+			want: "negative",
+		},
+		{
+			name: "missing-truncation-message",
+			mutate: func(audit map[string]any) {
+				audit["prompt_truncated"] = true
+				delete(audit, "prompt_truncation_message")
+			},
+			want: "prompt_truncation_message",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+			writeTestPNG(t, filepath.Join(dir, "final.png"))
+			writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+			writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><html><body>Acme Map</body></html>")
+			writeValidManifest(t, dir)
+
+			manifest := readManifestFixture(t, dir)
+			audit, ok := manifest["audit"].(map[string]any)
+			if !ok {
+				t.Fatalf("audit fixture = %#v, want object", manifest["audit"])
+			}
+			tc.mutate(audit)
+			writeManifestFixture(t, dir, manifest)
+
+			issues := ValidateBundle(dir)
+			if !hasIssueContaining(issues, "manifest.json", tc.want) {
+				t.Fatalf("ValidateBundle() issues = %#v, want audit issue containing %q", issues, tc.want)
+			}
+		})
+	}
+}
+
 func TestValidateBundleFailsWhenManifestSourceIsInvalid(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -218,6 +321,18 @@ func validManifest(dir string) model.Manifest {
 		Backend:  model.BackendInfo{Name: "local", Remote: false},
 		Renderer: "html",
 		Style:    "executive-dark",
+		Audit: model.ManifestAudit{
+			ToolVersion:          "0.1.0",
+			RequestedBackend:     "local",
+			SelectedBackend:      "local",
+			SourceCount:          1,
+			EvidenceItemCount:    1,
+			WarningCount:         0,
+			RedactionCount:       0,
+			RemoteImageAttempted: false,
+			FallbackUsed:         false,
+			PromptTruncated:      false,
+		},
 		OutputFiles: []model.OutputFile{
 			{Kind: "scaffold", Path: "scaffold.html", SHA256: sha256File(filepath.Join(dir, "scaffold.html"))},
 			{Kind: "visual_packet", Path: "visual-packet.json", SHA256: sha256File(filepath.Join(dir, "visual-packet.json"))},
@@ -264,6 +379,26 @@ func writeJSON(t *testing.T, path string, value any) {
 		t.Fatalf("Marshal() error = %v", err)
 	}
 	writeFile(t, path, string(data))
+}
+
+func readManifestFixture(t *testing.T, dir string) map[string]any {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(manifest.json) error = %v", err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("Unmarshal(manifest.json) error = %v", err)
+	}
+	return manifest
+}
+
+func writeManifestFixture(t *testing.T, dir string, manifest map[string]any) {
+	t.Helper()
+
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
 }
 
 func writeFile(t *testing.T, path string, value string) {

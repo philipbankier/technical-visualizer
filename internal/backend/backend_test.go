@@ -149,6 +149,25 @@ func TestOpenAIBackendCapsPromptLength(t *testing.T) {
 	}
 }
 
+func TestBuildPromptReportsTruncation(t *testing.T) {
+	result, err := BuildPrompt(ImageRequest{
+		Prompt:       strings.Repeat("a", maxPromptRunes),
+		ScaffoldHTML: strings.Repeat("b", 200),
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompt() error = %v", err)
+	}
+	if !result.Truncated {
+		t.Fatalf("BuildPrompt() Truncated = false, want true")
+	}
+	if result.TruncationMessage == "" {
+		t.Fatalf("BuildPrompt() TruncationMessage is empty")
+	}
+	if got := len([]rune(result.Prompt)); got != maxPromptRunes {
+		t.Fatalf("prompt length = %d, want %d", got, maxPromptRunes)
+	}
+}
+
 func TestCodexBackendAvailableReportsMissingBinary(t *testing.T) {
 	client := NewCodexBackend(CodexConfig{BinaryPath: filepath.Join(t.TempDir(), "missing-codex")})
 

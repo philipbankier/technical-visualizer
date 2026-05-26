@@ -125,13 +125,28 @@ type SourceRef struct {
 }
 
 type Manifest struct {
-	SchemaVersion string       `json:"schema_version"`
-	Sources       []SourceSpec `json:"sources,omitempty"`
-	Backend       BackendInfo  `json:"backend"`
-	Renderer      string       `json:"renderer"`
-	Style         string       `json:"style"`
-	Warnings      []string     `json:"warnings,omitempty"`
-	OutputFiles   []OutputFile `json:"output_files"`
+	SchemaVersion string        `json:"schema_version"`
+	Sources       []SourceSpec  `json:"sources,omitempty"`
+	Backend       BackendInfo   `json:"backend"`
+	Renderer      string        `json:"renderer"`
+	Style         string        `json:"style"`
+	Warnings      []string      `json:"warnings,omitempty"`
+	Audit         ManifestAudit `json:"audit"`
+	OutputFiles   []OutputFile  `json:"output_files"`
+}
+
+type ManifestAudit struct {
+	ToolVersion             string `json:"tool_version"`
+	RequestedBackend        string `json:"requested_backend"`
+	SelectedBackend         string `json:"selected_backend"`
+	SourceCount             int    `json:"source_count"`
+	EvidenceItemCount       int    `json:"evidence_item_count"`
+	WarningCount            int    `json:"warning_count"`
+	RedactionCount          int    `json:"redaction_count"`
+	RemoteImageAttempted    bool   `json:"remote_image_attempted"`
+	FallbackUsed            bool   `json:"fallback_used"`
+	PromptTruncated         bool   `json:"prompt_truncated"`
+	PromptTruncationMessage string `json:"prompt_truncation_message,omitempty"`
 }
 
 type BackendInfo struct {

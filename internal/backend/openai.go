@@ -38,6 +38,12 @@ type OpenAIBackend struct {
 	timeout    time.Duration
 }
 
+type PromptBuildResult struct {
+	Prompt            string
+	Truncated         bool
+	TruncationMessage string
+}
+
 func NewOpenAIBackend(config OpenAIConfig) *OpenAIBackend {
 	apiKey := config.APIKey
 	if apiKey == "" {
@@ -164,10 +170,18 @@ type openAIImageResponse struct {
 }
 
 func buildPrompt(request ImageRequest) (string, error) {
+	result, err := BuildPrompt(request)
+	if err != nil {
+		return "", err
+	}
+	return result.Prompt, nil
+}
+
+func BuildPrompt(request ImageRequest) (PromptBuildResult, error) {
 	contentBrief := strings.TrimSpace(request.Prompt)
 	scaffoldHTML := strings.TrimSpace(request.ScaffoldHTML)
 	if contentBrief == "" && scaffoldHTML == "" {
-		return "", errors.New("openai image generation requires a prompt or scaffold HTML")
+		return PromptBuildResult{}, errors.New("openai image generation requires a prompt or scaffold HTML")
 	}
 
 	var sections []string
@@ -178,20 +192,26 @@ func buildPrompt(request ImageRequest) (string, error) {
 		sections = append(sections, "Audit scaffold HTML:\n"+scaffoldHTML)
 	}
 
-	return capPrompt(strings.Join(sections, "\n\n")), nil
+	prompt, truncated, message := capPrompt(strings.Join(sections, "\n\n"))
+	return PromptBuildResult{
+		Prompt:            prompt,
+		Truncated:         truncated,
+		TruncationMessage: message,
+	}, nil
 }
 
-func capPrompt(prompt string) string {
+func capPrompt(prompt string) (string, bool, string) {
 	if runeCount(prompt) <= maxPromptRunes {
-		return prompt
+		return prompt, false, ""
 	}
 
-	marker := "\n\n[truncated to fit gpt-image-2 prompt limit]"
+	message := "prompt truncated to fit gpt-image-2 prompt limit"
+	marker := "\n\n[" + message + "]"
 	limit := maxPromptRunes - runeCount(marker)
 	if limit <= 0 {
-		return takeRunes(prompt, maxPromptRunes)
+		return takeRunes(prompt, maxPromptRunes), true, message
 	}
-	return takeRunes(prompt, limit) + marker
+	return takeRunes(prompt, limit) + marker, true, message
 }
 
 func runeCount(value string) int {

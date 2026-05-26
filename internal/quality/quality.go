@@ -74,7 +74,22 @@ type manifestSummary struct {
 	Backend       backendSummary      `json:"backend"`
 	Renderer      string              `json:"renderer"`
 	Style         string              `json:"style"`
+	Audit         auditSummary        `json:"audit"`
 	OutputFiles   []outputFileSummary `json:"output_files"`
+}
+
+type auditSummary struct {
+	ToolVersion             string `json:"tool_version"`
+	RequestedBackend        string `json:"requested_backend"`
+	SelectedBackend         string `json:"selected_backend"`
+	SourceCount             int    `json:"source_count"`
+	EvidenceItemCount       int    `json:"evidence_item_count"`
+	WarningCount            int    `json:"warning_count"`
+	RedactionCount          int    `json:"redaction_count"`
+	RemoteImageAttempted    bool   `json:"remote_image_attempted"`
+	FallbackUsed            bool   `json:"fallback_used"`
+	PromptTruncated         bool   `json:"prompt_truncated"`
+	PromptTruncationMessage string `json:"prompt_truncation_message"`
 }
 
 type sourceSummary struct {
@@ -124,6 +139,7 @@ func validateManifest(dir string) []Issue {
 	if !validStyle(manifest.Style) {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("style = %q is not a valid v1 style", manifest.Style)})
 	}
+	issues = append(issues, validateAudit(manifest.Audit, len(manifest.Sources), manifest.Backend.Name)...)
 
 	outputs := map[string]outputFileSummary{}
 	for _, file := range manifest.OutputFiles {
@@ -146,6 +162,33 @@ func validateManifest(dir string) []Issue {
 		issues = append(issues, validateOutputFile(dir, kind, expectedPath, file)...)
 	}
 
+	return issues
+}
+
+func validateAudit(audit auditSummary, sourceCount int, selectedBackend string) []Issue {
+	var issues []Issue
+	if strings.TrimSpace(audit.ToolVersion) == "" {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.tool_version must not be empty"})
+	}
+	if strings.TrimSpace(audit.RequestedBackend) == "" {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.requested_backend must not be empty"})
+	}
+	auditSelectedBackend := strings.TrimSpace(audit.SelectedBackend)
+	if auditSelectedBackend == "" {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.selected_backend must not be empty"})
+	}
+	if auditSelectedBackend != strings.TrimSpace(selectedBackend) {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.selected_backend must match backend.name"})
+	}
+	if audit.SourceCount != sourceCount {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.source_count must match sources length"})
+	}
+	if audit.EvidenceItemCount < 0 || audit.WarningCount < 0 || audit.RedactionCount < 0 {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit counts must not be negative"})
+	}
+	if audit.PromptTruncated && strings.TrimSpace(audit.PromptTruncationMessage) == "" {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.prompt_truncation_message must be set when prompt_truncated is true"})
+	}
 	return issues
 }
 
