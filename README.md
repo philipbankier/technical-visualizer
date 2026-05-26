@@ -69,13 +69,15 @@ In v0.1, `scaffold.html` is the main local artifact to inspect. Local `final.png
 
 ## Backends
 
-| Backend        | Remote source fetch      | Remote image call             | Behavior                                               |
-| -------------- | ------------------------ | ----------------------------- | ------------------------------------------------------ |
-| `local`        | yes, unless `--offline`  | no                            | writes scaffold and local fallback preview             |
-| `openai`       | yes, unless local input  | yes                           | calls OpenAI Images API and fails if generation fails   |
-| `auto`         | yes, unless `--offline`  | when `OPENAI_API_KEY` is set  | tries OpenAI, falls back locally with warning           |
-| `hybrid`       | yes, unless `--offline`  | when `OPENAI_API_KEY` is set  | tries OpenAI, falls back locally with warning           |
-| Codex handoff  | handled by the agent     | handled by the agent          | agent reads packet and scaffold, then saves an image    |
+`--renderer html` is scaffold-first mode. It always writes the local fallback `final.png`, records the selected backend as `local`, and does not call remote image generation. Use `--renderer image` or the default `hybrid` renderer when you want the selected backend to generate `final.png`.
+
+| Backend        | Remote source fetch      | Remote image call                                              | Behavior                                              |
+| -------------- | ------------------------ | -------------------------------------------------------------- | ----------------------------------------------------- |
+| `local`        | yes, unless `--offline`  | no                                                             | writes scaffold and local fallback preview            |
+| `openai`       | yes, unless local input  | yes, when renderer is `image` or `hybrid`                      | calls OpenAI Images API and fails if generation fails  |
+| `auto`         | yes, unless `--offline`  | yes, when credentials exist and renderer is `image` or `hybrid` | tries OpenAI, falls back locally with warning          |
+| `hybrid`       | yes, unless `--offline`  | yes, when credentials exist and renderer is `image` or `hybrid` | tries OpenAI, falls back locally with warning          |
+| Codex handoff  | handled by the agent     | handled by the agent                                           | agent reads packet and scaffold, then saves an image   |
 
 See [docs/backends.md](docs/backends.md) for backend details.
 
@@ -87,7 +89,7 @@ Supported v0.1 inputs:
 - Docs site URLs
 - Markdown files and URLs
 - JSON files as evidence inputs
-- PDF files and URLs, accepted with warnings because text extraction is not implemented in v0.1
+- PDF files and URLs, but only alongside at least one text, repo, JSON, or docs source. v0.1 emits warnings and no PDF text evidence, so PDF-only runs fail with no evidence gathered.
 - Local repo paths
 
 Direct local inputs that look like secrets, credentials, or private keys are rejected. Repo scans skip secret-like files, generated directories, symlinks, large files, and binary-looking files by default.

@@ -34,7 +34,7 @@ go test -cover ./...
 - Explicit OpenAI generation requires `OPENAI_API_KEY`.
 - Generated bundles can contain source-derived content.
 - Direct local inputs that look like secrets, credentials, or private keys are rejected.
-- PDF inputs are accepted with warnings because text extraction is not implemented in v0.1.
+- PDF files and URLs can be included alongside at least one text, repo, JSON, or docs source. v0.1 emits warnings and no PDF text evidence, so PDF-only runs fail with no evidence gathered.
 - The CLI is not ready to expose as a hosted service without private-network URL guards, authentication, and source allowlists.
 
 ## Not Released Yet
