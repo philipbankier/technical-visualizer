@@ -14,6 +14,10 @@
   "renderer": "html",
   "style": "executive-dark",
   "warnings": [],
+  "next_steps": [
+    "Open scaffold.html first; visual-packet.json contains the source-backed content packet for this run.",
+    "For a polished OpenAI image, set OPENAI_API_KEY and rerun with --backend openai --renderer image."
+  ],
   "audit": {
     "tool_version": "0.1.0",
     "requested_backend": "local",
@@ -30,12 +34,12 @@
     {
       "kind": "scaffold",
       "path": "scaffold.html",
-      "sha256": "c0601050977cebcd8708dfadd00fd1e4943b29162fa57b3fd3dc165a5227ab43"
+      "sha256": "1dc0d96c63053cf2808b00c7abb2cf6856b43a2ca2297e144682fa1719b2efcf"
     },
     {
       "kind": "visual_packet",
       "path": "visual-packet.json",
-      "sha256": "f29878001b828e88a216afff300e56a340133edf3943bc6c3021f1c1f8a8d539"
+      "sha256": "4d145aa955cf2664dcfeb36bbbc714b325b0353067bc4ac6e9dc8a51842aced6"
     },
     {
       "kind": "manifest",

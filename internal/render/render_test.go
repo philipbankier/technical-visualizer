@@ -86,6 +86,41 @@ func TestWriteScaffoldRendersRichPacketFields(t *testing.T) {
 	}
 }
 
+func TestWriteScaffoldDoesNotEmitTrailingWhitespace(t *testing.T) {
+	packet := scaffoldTestPacket()
+	packet.Metrics = nil
+	packet.Timeline = nil
+	packet.Tables = nil
+	packet.Diagrams = nil
+	packet.OpenQuestions = nil
+	packet.ContentBlocks = nil
+
+	var buf bytes.Buffer
+	if err := WriteScaffold(&buf, packet); err != nil {
+		t.Fatalf("WriteScaffold() error = %v", err)
+	}
+	for lineNumber, line := range strings.Split(buf.String(), "\n") {
+		if strings.HasSuffix(line, " ") || strings.HasSuffix(line, "\t") {
+			t.Fatalf("line %d has trailing whitespace: %q", lineNumber+1, line)
+		}
+	}
+}
+
+func TestWriteScaffoldPreservesDiagramTrailingWhitespace(t *testing.T) {
+	packet := scaffoldTestPacket()
+	packet.Diagrams = []model.Diagram{{ID: "diagram-1", Title: "Aligned diagram", Kind: "ascii", Text: "left   \nright\t"}}
+
+	var buf bytes.Buffer
+	if err := WriteScaffold(&buf, packet); err != nil {
+		t.Fatalf("WriteScaffold() error = %v", err)
+	}
+	got := buf.String()
+	want := "<pre>left   \nright\t</pre>"
+	if !strings.Contains(got, want) {
+		t.Fatalf("scaffold did not preserve diagram whitespace %q in: %s", want, got)
+	}
+}
+
 func TestWriteScaffoldFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "scaffold.html")

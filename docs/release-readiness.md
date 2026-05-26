@@ -15,6 +15,9 @@ The public release promise is:
 - Default generation is local.
 - OpenAI image generation is explicit and requires `OPENAI_API_KEY`.
 - Codex image generation is documented as an agent handoff workflow, not a direct CLI backend.
+- Dense markdown sources produce rich packet fields for metrics, tables, timelines, diagrams, entities, and open questions.
+- Codex handoff files are generated locally with `--handoff codex`.
+- Quick mode prints a manual command and does not run Codex automatically.
 
 ## Release Gates
 

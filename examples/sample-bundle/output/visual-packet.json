@@ -55,6 +55,49 @@
       ]
     }
   ],
+  "content_blocks": [
+    {
+      "id": "block-83d632a549fb",
+      "kind": "section",
+      "title": "Acme Orders Service",
+      "summary": "The Acme Orders Service accepts order requests, validates inventory, stores order state, and publishes fulfillment events.",
+      "text": "The Acme Orders Service accepts order requests, validates inventory, stores order state, and publishes fulfillment events.",
+      "source_refs": [
+        "src-c5ed5ffb78af"
+      ]
+    },
+    {
+      "id": "block-72255b3435ca",
+      "kind": "section",
+      "title": "Components",
+      "summary": "- HTTP API receives order submissions.",
+      "text": "- HTTP API receives order submissions.\n- Inventory client checks stock before confirmation.\n- Orders database stores order status.\n- Event publisher emits fulfillment events.",
+      "items": [
+        "HTTP API receives order submissions.",
+        "Inventory client checks stock before confirmation.",
+        "Orders database stores order status.",
+        "Event publisher emits fulfillment events."
+      ],
+      "source_refs": [
+        "src-c5ed5ffb78af"
+      ]
+    },
+    {
+      "id": "block-e044584f0b6e",
+      "kind": "section",
+      "title": "Risks",
+      "summary": "- Inventory failures delay confirmation.",
+      "text": "- Inventory failures delay confirmation.\n- Duplicate submissions require idempotency keys.\n- Event publishing must not happen before order state is committed.",
+      "items": [
+        "Inventory failures delay confirmation.",
+        "Duplicate submissions require idempotency keys.",
+        "Event publishing must not happen before order state is committed."
+      ],
+      "source_refs": [
+        "src-c5ed5ffb78af"
+      ]
+    }
+  ],
   "layout": {
     "format": "single-image-infographic",
     "orientation": "landscape",

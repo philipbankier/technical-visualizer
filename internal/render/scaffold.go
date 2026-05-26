@@ -155,7 +155,7 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
       </ul>
     </section>
 
-    {{if .Metrics}}
+{{if .Metrics}}
     <section>
       <h2>Key Metrics</h2>
       <ul>
@@ -163,9 +163,9 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
 {{end}}
       </ul>
     </section>
-    {{end}}
+{{end}}
 
-    {{if .Timeline}}
+{{if .Timeline}}
     <section>
       <h2>Timeline</h2>
       <ul>
@@ -173,9 +173,9 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
 {{end}}
       </ul>
     </section>
-    {{end}}
+{{end}}
 
-    {{if .Tables}}
+{{if .Tables}}
     <section>
       <h2>Tables</h2>
 {{range .Tables}}      <h3>{{.Title}}</h3>
@@ -187,18 +187,18 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
       </table>
 {{end}}
     </section>
-    {{end}}
+{{end}}
 
-    {{if .Diagrams}}
+{{if .Diagrams}}
     <section>
       <h2>Diagrams</h2>
 {{range .Diagrams}}      <h3>{{.Title}}</h3>
       <pre>{{.Text}}</pre>
 {{end}}
     </section>
-    {{end}}
+{{end}}
 
-    {{if .OpenQuestions}}
+{{if .OpenQuestions}}
     <section>
       <h2>Open Questions</h2>
       <ul>
@@ -206,9 +206,9 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
 {{end}}
       </ul>
     </section>
-    {{end}}
+{{end}}
 
-    {{if .ContentBlocks}}
+{{if .ContentBlocks}}
     <section>
       <h2>Content Blocks</h2>
       <ul>
@@ -216,7 +216,7 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
 {{end}}
       </ul>
     </section>
-    {{end}}
+{{end}}
 
     <section>
       <h2>Claims</h2>

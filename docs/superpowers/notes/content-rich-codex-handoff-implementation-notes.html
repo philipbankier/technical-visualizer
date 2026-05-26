@@ -134,6 +134,21 @@
           preserves the boundary between the Go CLI and Codex's agent-side image tools.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">Task 8</div>
+        <p>
+          Public docs present Codex handoff as a generated local package plus a manual quick
+          command, not as a direct backend or automatic Codex execution.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">Task 8</div>
+        <p>
+          Sample regeneration exposed whitespace-only scaffold lines from omitted optional
+          sections. The scaffold template now keeps standalone control actions unindented so
+          generated excerpts stay diff-clean without trimming source-derived diagram text.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -194,6 +209,15 @@
         <p>
           Plan requires strict TDD: every behavior task starts with a failing test, records the
           red output, then implements the smallest passing change before refactor.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">Task 8</div>
+        <p>
+          Task 8 passed <code>script/lint</code>, <code>script/test</code>,
+          <code>script/smoke</code>, <code>GOTOOLCHAIN=go1.26.3 script/security</code>,
+          sample JSON validation, sample pruning checks, wording scan, and
+          <code>git diff --check</code>.
         </p>
       </div>
     </section>

@@ -39,6 +39,12 @@
       letter-spacing: 0;
       color: #9fd9ff;
     }
+    h3 {
+      margin: 16px 0 8px;
+      font-size: 16px;
+      letter-spacing: 0;
+      color: #d6e1e8;
+    }
     p {
       line-height: 1.55;
       color: #d6e1e8;
@@ -57,6 +63,33 @@
     li {
       margin: 10px 0;
       line-height: 1.45;
+    }
+    pre {
+      overflow-x: auto;
+      padding: 14px;
+      border: 1px solid #2c3942;
+      border-radius: 6px;
+      background: #101418;
+      color: #d6e1e8;
+      white-space: pre-wrap;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      color: #d6e1e8;
+    }
+    th,
+    td {
+      border-bottom: 1px solid #2c3942;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: #9fd9ff;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
     .grid {
       display: grid;
@@ -110,6 +143,28 @@
         <li>Technical Map: notes.md</li><li>notes.md</li><li>Acme Orders Service</li><li>Components</li><li>Risks</li>
       </ul>
     </section>
+
+
+
+
+
+
+
+
+
+
+
+
+    <section>
+      <h2>Content Blocks</h2>
+      <ul>
+        <li><span class="text">Acme Orders Service</span><span class="label">The Acme Orders Service accepts order requests, validates inventory, stores order state, and publishes fulfillment events.</span></li>
+        <li><span class="text">Components</span><span class="label">- HTTP API receives order submissions.</span></li>
+        <li><span class="text">Risks</span><span class="label">- Inventory failures delay confirmation.</span></li>
+
+      </ul>
+    </section>
+
 
     <section>
       <h2>Claims</h2>

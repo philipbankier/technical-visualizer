@@ -28,12 +28,13 @@ Without `OPENAI_API_KEY`, `auto` stays local.
 
 ## Codex Agent Handoff
 
-Codex is not a direct backend in v0.1. Use Codex as an agent to inspect the generated packet and scaffold, then generate or revise images using tools available in that Codex environment.
+Codex is not a direct backend in v0.1. `--handoff codex` is not a backend. It writes local prompt and brief files that an interactive Codex session can use.
 
 ```bash
-visualize --backend local --renderer html --out visualize-output https://github.com/example/service
-codex -C . "Use visualize-output/visual-packet.json and visualize-output/scaffold.html as source material. Generate one polished technical visualization image. Save the selected result as visualize-output/final.png."
+visualize --backend local --renderer html --handoff codex --quick --out visualize-output https://github.com/example/service
 ```
+
+The generated bundle includes `handoff/codex-prompt.md`, `handoff/image-brief.md`, `handoff/qa-checklist.md`, and `handoff/style.md`. Quick mode prints a POSIX shell command for manual use in interactive Codex.
 
 Supported Codex environments may provide built-in image generation without `OPENAI_API_KEY`, but that is an agent workflow. The CLI does not support `visualize --backend codex` in v0.1.
 

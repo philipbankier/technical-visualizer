@@ -16,9 +16,10 @@ Use this workflow when you want an agent to audit the bundle without asking the 
 In supported Codex environments, Codex may expose a built-in image-generation tool. That is different from the standalone Go CLI calling OpenAI directly.
 
 ```bash
-visualize --backend local --renderer html --out visualize-output https://github.com/example/service
-codex -C . "Use visualize-output/visual-packet.json and visualize-output/scaffold.html as source material. Generate one polished technical visualization image. Save the selected result as visualize-output/final.png."
+visualize --backend local --renderer html --handoff codex --quick --out visualize-output https://github.com/example/service
 ```
+
+Use the printed POSIX shell command in an interactive Codex session. If quick mode is not used, open `visualize-output/handoff/codex-prompt.md` and paste it into Codex manually.
 
 Use this path when you want to use Codex or ChatGPT subscription access through the agent environment. The agent should save the generated image back into the bundle as `final.png` or another clear filename.
 
