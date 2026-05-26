@@ -61,6 +61,9 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	if err != nil {
 		return model.Manifest{}, err
 	}
+	if len(evidence.Items) == 0 {
+		return model.Manifest{}, fmt.Errorf("no evidence gathered from %d source(s); warnings: %s", len(evidence.Sources), formatWarnings(evidence.Warnings))
+	}
 	publicEvidence := publicEvidenceBundle(evidence)
 	visualPacket, err := packet.Build(publicEvidence, packet.BuildOptions{
 		Goal:     opts.Goal,
@@ -226,7 +229,17 @@ func generateImage(ctx context.Context, opts Options, visualPacket model.VisualP
 				return imageGenerationResult{}, err
 			}
 			if err := client.Generate(ctx, request); err != nil {
-				return imageGenerationResult{}, err
+				if fallbackErr := render.WriteFallbackPNG(outputPath, visualPacket); fallbackErr != nil {
+					return imageGenerationResult{}, fallbackErr
+				}
+				return imageGenerationResult{
+					BackendInfo:             model.BackendInfo{Name: "local", Remote: false},
+					Warnings:                []string{"OpenAI generation failed, used local fallback: " + err.Error()},
+					RemoteImageAttempted:    true,
+					FallbackUsed:            true,
+					PromptTruncated:         promptResult.Truncated,
+					PromptTruncationMessage: promptResult.TruncationMessage,
+				}, nil
 			}
 			return imageGenerationResult{
 				BackendInfo:             model.BackendInfo{Name: client.Name(), Remote: true, Model: "gpt-image-2"},
@@ -445,4 +458,11 @@ func formatIssues(issues []quality.Issue) string {
 		parts = append(parts, issue.Path+": "+issue.Message)
 	}
 	return strings.Join(parts, "; ")
+}
+
+func formatWarnings(warnings []string) string {
+	if len(warnings) == 0 {
+		return "none"
+	}
+	return strings.Join(warnings, "; ")
 }

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/philipbankier/technical-visualizer/internal/model"
 )
@@ -42,6 +43,87 @@ func TestRunOfflineAutoUsesLocalBackendEvenWithAPIKey(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "final.png")); err != nil {
 		t.Fatalf("Stat(final.png) error = %v", err)
+	}
+}
+
+func TestRunFailsWhenAllSourcesProduceNoEvidence(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "missing.md")
+	outputDir := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want no evidence error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "no evidence") {
+		t.Fatalf("Run() error = %q, want no evidence explanation", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "manifest.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("manifest.json exists after no-evidence run, stat error = %v", statErr)
+	}
+}
+
+func TestRunAutoFallsBackWhenOpenAIGenerationFails(t *testing.T) {
+	configureUnreachableOpenAI(t)
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nFallback should preserve a local bundle."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	t.Cleanup(cancel)
+
+	manifest, err := Run(ctx, Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "auto",
+		Renderer:  "image",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if manifest.Backend.Name != "local" || manifest.Backend.Remote {
+		t.Fatalf("manifest backend = %#v, want local fallback", manifest.Backend)
+	}
+	if !manifest.Audit.RemoteImageAttempted {
+		t.Fatalf("RemoteImageAttempted = false, want true")
+	}
+	if !manifest.Audit.FallbackUsed {
+		t.Fatalf("FallbackUsed = false, want true")
+	}
+	if !hasWarningContaining(manifest.Warnings, "OpenAI generation failed") {
+		t.Fatalf("warnings = %#v, want OpenAI fallback warning", manifest.Warnings)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "final.png")); err != nil {
+		t.Fatalf("Stat(final.png) error = %v", err)
+	}
+}
+
+func TestRunExplicitOpenAIFailsWhenGenerationFails(t *testing.T) {
+	configureUnreachableOpenAI(t)
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nExplicit OpenAI should fail fast."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	t.Cleanup(cancel)
+
+	_, err := Run(ctx, Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "openai",
+		Renderer:  "image",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want explicit OpenAI failure")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "openai") {
+		t.Fatalf("Run() error = %q, want OpenAI explanation", err)
 	}
 }
 
@@ -272,4 +354,22 @@ func hasOutputKind(files []model.OutputFile, kind string) bool {
 	return slices.ContainsFunc(files, func(file model.OutputFile) bool {
 		return file.Kind == kind
 	})
+}
+
+func configureUnreachableOpenAI(t *testing.T) {
+	t.Helper()
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
+	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
+	t.Setenv("NO_PROXY", "")
+}
+
+func hasWarningContaining(warnings []string, needle string) bool {
+	needle = strings.ToLower(needle)
+	for _, warning := range warnings {
+		if strings.Contains(strings.ToLower(warning), needle) {
+			return true
+		}
+	}
+	return false
 }
