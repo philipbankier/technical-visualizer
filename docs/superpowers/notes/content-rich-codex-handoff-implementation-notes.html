@@ -103,6 +103,30 @@
           are not left to infer what to do from backend metadata alone.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">Task 6</div>
+        <p>
+          Codex handoff files are deterministic local markdown files with private permissions.
+          They include a remote-agent privacy warning and carry the rich packet fields into the
+          image brief so the agent handoff does not require rereading original sources.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">Task 6</div>
+        <p>
+          Handoff output image paths are limited to bundle-relative paths, and existing symlinked
+          handoff paths are rejected instead of followed. The handoff bundle should not instruct
+          agents to write outside the generated output folder.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">Task 6</div>
+        <p>
+          Source-derived prose is flattened when inserted into prompt bullet lists, while diagrams
+          use dynamic Markdown fences. This preserves diagram text without allowing source markdown
+          to become handoff instructions.
+        </p>
+      </div>
     </section>
 
     <section>
