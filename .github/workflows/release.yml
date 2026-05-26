@@ -21,6 +21,7 @@ jobs:
       - run: script/test
       - run: script/smoke
       - run: script/security
+      - run: go test -cover ./...
       - name: Build release assets
         run: |
           set -euo pipefail
