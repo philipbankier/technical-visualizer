@@ -19,7 +19,7 @@ Current verified state:
 - `script/security` fails under local Go 1.26.0 because govulncheck reports standard-library issues fixed in Go 1.26.3.
 - `GOTOOLCHAIN=go1.26.3 script/security` passes locally.
 - The OpenAI backend uses `gpt-image-2` through the OpenAI Images API and requires `OPENAI_API_KEY`.
-- The Codex backend is doctor-only in v1 and intentionally does not generate images through the standalone Go CLI.
+- The Codex backend is doctor-only in v0.1 and intentionally does not generate images through the standalone Go CLI.
 - The local Codex environment includes an `imagegen` skill with a built-in image generation path. That path is agent-mediated, not a stable child-process API that `visualize` can call directly.
 
 ## Release Promise

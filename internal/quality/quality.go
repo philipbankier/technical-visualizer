@@ -138,7 +138,7 @@ func validateManifest(dir string) []Issue {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("renderer = %q, want html, hybrid, or image", manifest.Renderer)})
 	}
 	if !validStyle(manifest.Style) {
-		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("style = %q is not a valid v1 style", manifest.Style)})
+		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("style = %q is not a valid v0.1 style", manifest.Style)})
 	}
 	issues = append(issues, validateAudit(manifest.Audit, len(manifest.Sources), manifest.Backend.Name, len(manifest.Warnings))...)
 

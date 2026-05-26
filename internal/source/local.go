@@ -98,7 +98,7 @@ func gatherLocalPDF(ctx context.Context, spec model.SourceSpec, opts GatherOptio
 	if info.Size() > opts.MaxBytesPerFile {
 		return gatherResult{Warnings: []string{sourceWarning(spec, "PDF %q exceeds MaxBytesPerFile (%d > %d); skipped text extraction", path, info.Size(), opts.MaxBytesPerFile)}}
 	}
-	return gatherResult{Warnings: []string{sourceWarning(spec, "PDF text extraction is not implemented in v1 for %q; file size %d bytes was bounded and no text evidence was emitted", path, info.Size())}}
+	return gatherResult{Warnings: []string{sourceWarning(spec, "PDF text extraction is not implemented in v0.1 for %q; file size %d bytes was bounded and no text evidence was emitted", path, info.Size())}}
 }
 
 func gatherLocalRepo(ctx context.Context, spec model.SourceSpec, opts GatherOptions) gatherResult {

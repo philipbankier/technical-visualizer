@@ -180,7 +180,7 @@ func validateOptions(opts Options) error {
 	case "auto", "hybrid", "local", "openai":
 	default:
 		if opts.Backend == "codex" {
-			return errors.New("codex is an agent workflow in v1, not a direct image backend; use visualize doctor to check Codex availability, --backend openai for direct API image generation, or --backend local for private local output")
+			return errors.New("codex is an agent workflow in v0.1, not a direct image backend; use visualize doctor to check Codex availability, --backend openai for direct API image generation, or --backend local for private local output")
 		}
 		return fmt.Errorf("unsupported backend %q", opts.Backend)
 	}

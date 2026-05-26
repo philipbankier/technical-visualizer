@@ -688,7 +688,7 @@ In `internal/backend/codex.go`, replace `Generate` with:
 
 ```go
 func (b *CodexBackend) Generate(context.Context, ImageRequest) error {
-	return errors.New("codex is available only as an agent workflow in v1; use --backend openai for direct API image generation or run Codex against the generated visual-packet.json and scaffold.html")
+	return errors.New("codex is available only as an agent workflow in v0.1; use --backend openai for direct API image generation or run Codex against the generated visual-packet.json and scaffold.html")
 }
 ```
 
@@ -738,7 +738,7 @@ Remove `printCapability` if it is no longer used.
 In `internal/pipeline/pipeline.go`, replace the `codex` validation error with:
 
 ```go
-return errors.New("codex is an agent workflow in v1, not a direct image backend; use visualize doctor to check Codex availability, --backend openai for direct API image generation, or --backend local for private local output")
+return errors.New("codex is an agent workflow in v0.1, not a direct image backend; use visualize doctor to check Codex availability, --backend openai for direct API image generation, or --backend local for private local output")
 ```
 
 - [ ] **Step 6: Run focused tests**

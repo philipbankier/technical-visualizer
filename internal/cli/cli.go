@@ -36,7 +36,7 @@ func Run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "make":
 		return runPipeline(args[1:], stdout, stderr)
 	case "gather", "packet", "render":
-		fmt.Fprintf(stderr, "unsupported command %q in v1: use visualize make <sources...> for the full pipeline\n", args[0])
+		fmt.Fprintf(stderr, "unsupported command %q in v0.1: use visualize make <sources...> for the full pipeline\n", args[0])
 		return 2
 	default:
 		return runPipeline(args, stdout, stderr)
@@ -101,7 +101,7 @@ Common flags:
   --goal          Artifact goal.
   --offline       Skip remote source fetching.
 
-Unsupported in v1:
+Unsupported in v0.1:
   gather, packet, render, codex image generation
 `)
 }

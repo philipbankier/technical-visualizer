@@ -125,18 +125,18 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
     <section>
       <h2>Claims</h2>
       <ul>
-        {{range .RankedClaims}}
-        <li><span class="text">{{.Text}}</span><span class="label">confidence: {{.Confidence}} | kind: {{.Kind}} | refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-        {{else}}<li>No ranked claims supplied.</li>{{end}}
+{{range .RankedClaims}}        <li><span class="text">{{.Text}}</span><span class="label">confidence: {{.Confidence}} | kind: {{.Kind}} | refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
+{{else}}        <li>No ranked claims supplied.</li>
+{{end}}
       </ul>
     </section>
 
     <section>
       <h2>Facts</h2>
       <ul>
-        {{range .Facts}}
-        <li><span class="text">{{.Text}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-        {{else}}<li>No facts supplied.</li>{{end}}
+{{range .Facts}}        <li><span class="text">{{.Text}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
+{{else}}        <li>No facts supplied.</li>
+{{end}}
       </ul>
     </section>
 
@@ -144,27 +144,27 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
       <section>
         <h2>Risks</h2>
         <ul>
-          {{range .Risks}}
-          <li><span class="text">{{.Text}}</span><span class="label">severity: {{.Severity}} | refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-          {{else}}<li>No risks supplied.</li>{{end}}
+{{range .Risks}}          <li><span class="text">{{.Text}}</span><span class="label">severity: {{.Severity}} | refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
+{{else}}          <li>No risks supplied.</li>
+{{end}}
         </ul>
       </section>
 
       <section>
         <h2>Tradeoffs</h2>
         <ul>
-          {{range .Tradeoffs}}
-          <li><span class="text">{{.Choice}}</span><span class="text">{{.Reason}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-          {{else}}<li>No tradeoffs supplied.</li>{{end}}
+{{range .Tradeoffs}}          <li><span class="text">{{.Choice}}</span><span class="text">{{.Reason}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
+{{else}}          <li>No tradeoffs supplied.</li>
+{{end}}
         </ul>
       </section>
 
       <section>
         <h2>Unknowns</h2>
         <ul>
-          {{range .Unknowns}}
-          <li><span class="text">{{.Text}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
-          {{else}}<li>No unknowns supplied.</li>{{end}}
+{{range .Unknowns}}          <li><span class="text">{{.Text}}</span><span class="label">refs: {{range .SourceRefs}}{{.}} {{end}}</span></li>
+{{else}}          <li>No unknowns supplied.</li>
+{{end}}
         </ul>
       </section>
     </div>
@@ -172,9 +172,9 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
     <section>
       <h2>Source References</h2>
       <ul>
-        {{range .SourceRefs}}
-        <li><span class="text">{{.ID}} | {{.SourceID}} | {{.Label}}</span><span class="label">{{.Locator}}</span></li>
-        {{else}}<li>No source references supplied.</li>{{end}}
+{{range .SourceRefs}}        <li><span class="text">{{.ID}} | {{.SourceID}} | {{.Label}}</span><span class="label">{{.Locator}}</span></li>
+{{else}}        <li>No source references supplied.</li>
+{{end}}
       </ul>
     </section>
 
