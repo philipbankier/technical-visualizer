@@ -112,12 +112,12 @@ func printDoctor(w io.Writer) {
 	codex := backend.NewCodexBackend(backend.CodexConfig{}).Available(ctx)
 
 	fmt.Fprintln(w, "Backend status")
-	fmt.Fprintln(w, "local: available (fallback PNG renderer)")
-	printCapability(w, openAI)
-	printCapability(w, codex)
+	fmt.Fprintln(w, "local renderer: available (local, fallback PNG and scaffold output)")
+	printNamedCapability(w, "OpenAI Images API", openAI, "direct image backend for --backend openai")
+	printNamedCapability(w, "Codex CLI", codex, "agent workflow only, not a direct image backend")
 }
 
-func printCapability(w io.Writer, capability backend.Capability) {
+func printNamedCapability(w io.Writer, name string, capability backend.Capability, note string) {
 	status := "unavailable"
 	if capability.Available {
 		status = "available"
@@ -130,5 +130,5 @@ func printCapability(w io.Writer, capability backend.Capability) {
 	if reason == "" {
 		reason = "no details"
 	}
-	fmt.Fprintf(w, "%s: %s (%s, %s)\n", capability.Name, status, remote, reason)
+	fmt.Fprintf(w, "%s: %s (%s, %s; %s)\n", name, status, remote, reason, note)
 }

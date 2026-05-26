@@ -70,7 +70,7 @@ func (b *CodexBackend) Available(ctx context.Context) Capability {
 }
 
 func (b *CodexBackend) Generate(context.Context, ImageRequest) error {
-	return errors.New("codex image generation is not wired yet; a documented CLI or tool bridge must be proven locally before this backend can generate images")
+	return errors.New("codex is available only as an agent workflow in v1; use --backend openai for direct API image generation or run Codex against the generated visual-packet.json and scaffold.html")
 }
 
 func resolveBinary(binaryPath string) (string, error) {

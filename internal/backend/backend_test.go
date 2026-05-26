@@ -207,15 +207,15 @@ func TestCodexBackendAvailableReportsVersion(t *testing.T) {
 	}
 }
 
-func TestCodexBackendGenerateIsNotWired(t *testing.T) {
+func TestCodexBackendGenerateReportsAgentWorkflowOnly(t *testing.T) {
 	client := NewCodexBackend(CodexConfig{})
 
 	err := client.Generate(context.Background(), ImageRequest{OutputPath: filepath.Join(t.TempDir(), "final.png")})
 	if err == nil {
-		t.Fatalf("Generate() error = nil, want not wired error")
+		t.Fatalf("Generate() error = nil, want agent workflow error")
 	}
-	if !strings.Contains(strings.ToLower(err.Error()), "not wired") {
-		t.Fatalf("Generate() error = %q, want not wired explanation", err)
+	if !strings.Contains(strings.ToLower(err.Error()), "agent workflow") {
+		t.Fatalf("Generate() error = %q, want agent workflow explanation", err)
 	}
 }
 

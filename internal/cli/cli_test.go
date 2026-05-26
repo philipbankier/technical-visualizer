@@ -34,8 +34,8 @@ func TestRunDoctorReportsBackendStatusWithoutRemoteCredentials(t *testing.T) {
 		t.Fatalf("Run(doctor) code = %d, want 0; stderr=%q", code, stderr.String())
 	}
 	output := stdout.String()
-	for _, want := range []string{"Backend status", "local", "openai", "codex"} {
-		if !strings.Contains(strings.ToLower(output), strings.ToLower(want)) {
+	for _, want := range []string{"Backend status", "local renderer", "OpenAI Images API", "Codex CLI", "agent workflow", "not a direct image backend"} {
+		if !strings.Contains(output, want) {
 			t.Fatalf("doctor output missing %q: %q", want, output)
 		}
 	}
@@ -99,8 +99,11 @@ func TestRunCodexBackendReturnsClearErrorBeforeBundleWrite(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("Run(make --backend codex) code = 0, want failure")
 	}
-	if !strings.Contains(strings.ToLower(stderr.String()), "codex") || !strings.Contains(strings.ToLower(stderr.String()), "doctor") {
-		t.Fatalf("stderr missing codex doctor-only explanation: %q", stderr.String())
+	stderrOutput := strings.ToLower(stderr.String())
+	for _, want := range []string{"codex", "agent workflow", "openai"} {
+		if !strings.Contains(stderrOutput, want) {
+			t.Fatalf("stderr missing %q: %q", want, stderr.String())
+		}
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "scaffold.html")); !os.IsNotExist(err) {
 		t.Fatalf("scaffold.html exists after rejected codex run, stat error = %v", err)
