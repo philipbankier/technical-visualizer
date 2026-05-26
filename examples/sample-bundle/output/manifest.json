@@ -1,0 +1,50 @@
+{
+  "schema_version": "manifest/v1",
+  "sources": [
+    {
+      "id": "src-f8e0c45f0910",
+      "kind": "markdown",
+      "input": "examples/sample-bundle/input/notes.md"
+    }
+  ],
+  "backend": {
+    "name": "local",
+    "remote": false
+  },
+  "renderer": "html",
+  "style": "executive-dark",
+  "warnings": [],
+  "audit": {
+    "tool_version": "0.1.0",
+    "requested_backend": "local",
+    "selected_backend": "local",
+    "source_count": 1,
+    "evidence_item_count": 1,
+    "warning_count": 0,
+    "redaction_count": 0,
+    "remote_image_attempted": false,
+    "fallback_used": false,
+    "prompt_truncated": false
+  },
+  "output_files": [
+    {
+      "kind": "scaffold",
+      "path": "scaffold.html",
+      "sha256": "1f9b0cef399beeed1507d63f4abc23258aa7d5dd8038e2afd19d7196c0cc8215"
+    },
+    {
+      "kind": "visual_packet",
+      "path": "visual-packet.json",
+      "sha256": "f29878001b828e88a216afff300e56a340133edf3943bc6c3021f1c1f8a8d539"
+    },
+    {
+      "kind": "image",
+      "path": "final.png",
+      "sha256": "89b219dc3aeba413526fecdaa095f4edcc626ccec61fe7ce81c3c23ac04437bb"
+    },
+    {
+      "kind": "manifest",
+      "path": "manifest.json"
+    }
+  ]
+}

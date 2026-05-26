@@ -20,6 +20,7 @@ jobs:
       - run: script/lint
       - run: script/test
       - run: script/smoke
+      - run: script/security
       - name: Build release assets
         run: |
           set -euo pipefail
