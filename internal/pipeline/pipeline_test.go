@@ -34,6 +34,12 @@ func TestRunOfflineAutoUsesLocalBackendEvenWithAPIKey(t *testing.T) {
 	if manifest.Backend.Name != "local" || manifest.Backend.Remote {
 		t.Fatalf("manifest backend = %#v, want local non-remote", manifest.Backend)
 	}
+	if !manifest.Audit.FallbackUsed {
+		t.Fatalf("manifest audit fallback = false, want true for offline auto")
+	}
+	if manifest.Audit.WarningCount != len(manifest.Warnings) {
+		t.Fatalf("manifest audit warning count = %d, want %d", manifest.Audit.WarningCount, len(manifest.Warnings))
+	}
 	if _, err := os.Stat(filepath.Join(outputDir, "final.png")); err != nil {
 		t.Fatalf("Stat(final.png) error = %v", err)
 	}
@@ -56,6 +62,37 @@ func TestRunDefaultBackendStaysLocalWithAPIKey(t *testing.T) {
 	}
 	if manifest.Backend.Name != "local" || manifest.Backend.Remote {
 		t.Fatalf("manifest backend = %#v, want local non-remote", manifest.Backend)
+	}
+}
+
+func TestBaselineAuditCopiesImageGenerationMetadata(t *testing.T) {
+	imageResult := imageGenerationResult{
+		BackendInfo:             model.BackendInfo{Name: "openai", Remote: true, Model: "gpt-image-2"},
+		RemoteImageAttempted:    true,
+		FallbackUsed:            true,
+		PromptTruncated:         true,
+		PromptTruncationMessage: "prompt truncated to fit gpt-image-2 prompt limit",
+	}
+	publicEvidence := model.EvidenceBundle{
+		Sources:    []model.SourceSpec{{ID: "src-test", Kind: model.SourceMarkdown, Input: "notes.md"}},
+		Items:      []model.EvidenceItem{{ID: "item-test", SourceID: "src-test", Kind: "markdown", Title: "Notes"}},
+		Redactions: []model.Redaction{{SourceID: "src-test", Reason: "secret"}},
+	}
+	warnings := []string{"openai unavailable", "used fallback"}
+
+	audit := baselineAudit(Options{Backend: "hybrid"}, imageResult, publicEvidence, warnings)
+
+	if audit.SelectedBackend != "openai" || audit.RequestedBackend != "hybrid" {
+		t.Fatalf("audit backend = %#v, want requested hybrid and selected openai", audit)
+	}
+	if audit.SourceCount != 1 || audit.EvidenceItemCount != 1 || audit.WarningCount != 2 || audit.RedactionCount != 1 {
+		t.Fatalf("audit counts = %#v, want source=1 evidence=1 warning=2 redaction=1", audit)
+	}
+	if !audit.RemoteImageAttempted || !audit.FallbackUsed || !audit.PromptTruncated {
+		t.Fatalf("audit flags = %#v, want remote, fallback, and truncation true", audit)
+	}
+	if audit.PromptTruncationMessage != imageResult.PromptTruncationMessage {
+		t.Fatalf("audit truncation message = %q, want %q", audit.PromptTruncationMessage, imageResult.PromptTruncationMessage)
 	}
 }
 

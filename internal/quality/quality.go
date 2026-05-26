@@ -74,6 +74,7 @@ type manifestSummary struct {
 	Backend       backendSummary      `json:"backend"`
 	Renderer      string              `json:"renderer"`
 	Style         string              `json:"style"`
+	Warnings      []string            `json:"warnings"`
 	Audit         auditSummary        `json:"audit"`
 	OutputFiles   []outputFileSummary `json:"output_files"`
 }
@@ -139,7 +140,7 @@ func validateManifest(dir string) []Issue {
 	if !validStyle(manifest.Style) {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("style = %q is not a valid v1 style", manifest.Style)})
 	}
-	issues = append(issues, validateAudit(manifest.Audit, len(manifest.Sources), manifest.Backend.Name)...)
+	issues = append(issues, validateAudit(manifest.Audit, len(manifest.Sources), manifest.Backend.Name, len(manifest.Warnings))...)
 
 	outputs := map[string]outputFileSummary{}
 	for _, file := range manifest.OutputFiles {
@@ -165,7 +166,7 @@ func validateManifest(dir string) []Issue {
 	return issues
 }
 
-func validateAudit(audit auditSummary, sourceCount int, selectedBackend string) []Issue {
+func validateAudit(audit auditSummary, sourceCount int, selectedBackend string, warningCount int) []Issue {
 	var issues []Issue
 	requireString(&issues, audit.ToolVersion, "audit.tool_version")
 	requireString(&issues, audit.RequestedBackend, "audit.requested_backend")
@@ -177,18 +178,20 @@ func validateAudit(audit auditSummary, sourceCount int, selectedBackend string) 
 	if hasSourceCount && auditSourceCount != sourceCount {
 		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.source_count must match sources length"})
 	}
-	for _, count := range []struct {
-		name  string
-		value *int
-	}{
-		{name: "audit.evidence_item_count", value: audit.EvidenceItemCount},
-		{name: "audit.warning_count", value: audit.WarningCount},
-		{name: "audit.redaction_count", value: audit.RedactionCount},
-	} {
-		value, ok := requireInt(&issues, count.value, count.name)
-		if ok && value < 0 {
-			issues = append(issues, Issue{Path: "manifest.json", Message: count.name + " must not be negative"})
-		}
+	evidenceItemCount, hasEvidenceItemCount := requireInt(&issues, audit.EvidenceItemCount, "audit.evidence_item_count")
+	if hasEvidenceItemCount && evidenceItemCount < 0 {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.evidence_item_count must not be negative"})
+	}
+	auditWarningCount, hasWarningCount := requireInt(&issues, audit.WarningCount, "audit.warning_count")
+	if hasWarningCount && auditWarningCount < 0 {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.warning_count must not be negative"})
+	}
+	if hasWarningCount && auditWarningCount >= 0 && auditWarningCount != warningCount {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.warning_count must match warnings length"})
+	}
+	redactionCount, hasRedactionCount := requireInt(&issues, audit.RedactionCount, "audit.redaction_count")
+	if hasRedactionCount && redactionCount < 0 {
+		issues = append(issues, Issue{Path: "manifest.json", Message: "audit.redaction_count must not be negative"})
 	}
 	requireBool(&issues, audit.RemoteImageAttempted, "audit.remote_image_attempted")
 	requireBool(&issues, audit.FallbackUsed, "audit.fallback_used")

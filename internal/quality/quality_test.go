@@ -101,7 +101,7 @@ func TestValidateBundleAcceptsManifestAuditFields(t *testing.T) {
 		"selected_backend":          "local",
 		"source_count":              float64(1),
 		"evidence_item_count":       float64(2),
-		"warning_count":             float64(1),
+		"warning_count":             float64(0),
 		"redaction_count":           float64(0),
 		"remote_image_attempted":    true,
 		"fallback_used":             true,
@@ -149,6 +149,13 @@ func TestValidateBundleFailsWhenManifestAuditIsInvalid(t *testing.T) {
 				audit["evidence_item_count"] = float64(-1)
 			},
 			want: "negative",
+		},
+		{
+			name: "warning-count-mismatch",
+			mutate: func(audit map[string]any) {
+				audit["warning_count"] = float64(1)
+			},
+			want: "audit.warning_count",
 		},
 		{
 			name: "missing-truncation-message",
