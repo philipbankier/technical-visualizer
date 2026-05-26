@@ -3,13 +3,14 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/philipbankier/technical-visualizer/internal/backend"
 	"github.com/philipbankier/technical-visualizer/internal/model"
 )
 
@@ -47,7 +48,8 @@ func TestRunOfflineAutoUsesLocalBackendEvenWithAPIKey(t *testing.T) {
 }
 
 func TestRunFailsWhenAllSourcesProduceNoEvidence(t *testing.T) {
-	sourcePath := filepath.Join(t.TempDir(), "missing.md")
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "missing.md")
 	outputDir := t.TempDir()
 
 	_, err := Run(context.Background(), Options{
@@ -62,22 +64,68 @@ func TestRunFailsWhenAllSourcesProduceNoEvidence(t *testing.T) {
 	if !strings.Contains(strings.ToLower(err.Error()), "no evidence") {
 		t.Fatalf("Run() error = %q, want no evidence explanation", err)
 	}
+	if strings.Contains(err.Error(), root) {
+		t.Fatalf("Run() error leaked temp root %q: %v", root, err)
+	}
 	if _, statErr := os.Stat(filepath.Join(outputDir, "manifest.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("manifest.json exists after no-evidence run, stat error = %v", statErr)
 	}
 }
 
+func TestRunNoEvidenceCleansStaleGeneratedBundleFiles(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nThis run writes bundle files."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err != nil {
+		t.Fatalf("initial Run() error = %v", err)
+	}
+	for _, name := range generatedBundleFiles {
+		if _, err := os.Stat(filepath.Join(outputDir, name)); err != nil {
+			t.Fatalf("Stat(%s) after initial run error = %v", name, err)
+		}
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	_, err = Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want no evidence error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "no evidence") {
+		t.Fatalf("Run() error = %q, want no evidence explanation", err)
+	}
+	for _, name := range generatedBundleFiles {
+		if _, statErr := os.Stat(filepath.Join(outputDir, name)); !os.IsNotExist(statErr) {
+			t.Fatalf("%s exists after no-evidence rerun, stat error = %v", name, statErr)
+		}
+	}
+}
+
 func TestRunAutoFallsBackWhenOpenAIGenerationFails(t *testing.T) {
-	configureUnreachableOpenAI(t)
+	useOpenAIFake(t, fakeOpenAIBackend{generateErr: errors.New("forced OpenAI failure")})
 	sourcePath := filepath.Join(t.TempDir(), "notes.md")
 	if err := os.WriteFile(sourcePath, []byte("# System\n\nFallback should preserve a local bundle."), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	outputDir := t.TempDir()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	t.Cleanup(cancel)
 
-	manifest, err := Run(ctx, Options{
+	manifest, err := Run(context.Background(), Options{
 		Sources:   []string{sourcePath},
 		OutputDir: outputDir,
 		Backend:   "auto",
@@ -104,16 +152,14 @@ func TestRunAutoFallsBackWhenOpenAIGenerationFails(t *testing.T) {
 }
 
 func TestRunExplicitOpenAIFailsWhenGenerationFails(t *testing.T) {
-	configureUnreachableOpenAI(t)
+	useOpenAIFake(t, fakeOpenAIBackend{generateErr: errors.New("forced OpenAI failure")})
 	sourcePath := filepath.Join(t.TempDir(), "notes.md")
 	if err := os.WriteFile(sourcePath, []byte("# System\n\nExplicit OpenAI should fail fast."), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	outputDir := t.TempDir()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	t.Cleanup(cancel)
 
-	_, err := Run(ctx, Options{
+	_, err := Run(context.Background(), Options{
 		Sources:   []string{sourcePath},
 		OutputDir: outputDir,
 		Backend:   "openai",
@@ -356,12 +402,36 @@ func hasOutputKind(files []model.OutputFile, kind string) bool {
 	})
 }
 
-func configureUnreachableOpenAI(t *testing.T) {
+type fakeOpenAIBackend struct {
+	generateErr error
+}
+
+func (fakeOpenAIBackend) Name() string {
+	return "openai"
+}
+
+func (fakeOpenAIBackend) Available(context.Context) backend.Capability {
+	return backend.Capability{
+		Available: true,
+		Name:      "openai",
+		Reason:    "fake OpenAI backend is available",
+		Remote:    true,
+	}
+}
+
+func (f fakeOpenAIBackend) Generate(context.Context, backend.ImageRequest) error {
+	return f.generateErr
+}
+
+func useOpenAIFake(t *testing.T, fake openAIImageBackend) {
 	t.Helper()
-	t.Setenv("OPENAI_API_KEY", "test-key")
-	t.Setenv("HTTPS_PROXY", "http://127.0.0.1:1")
-	t.Setenv("HTTP_PROXY", "http://127.0.0.1:1")
-	t.Setenv("NO_PROXY", "")
+	original := newOpenAIBackend
+	newOpenAIBackend = func() openAIImageBackend {
+		return fake
+	}
+	t.Cleanup(func() {
+		newOpenAIBackend = original
+	})
 }
 
 func hasWarningContaining(warnings []string, needle string) bool {

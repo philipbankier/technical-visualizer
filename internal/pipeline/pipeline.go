@@ -22,6 +22,18 @@ import (
 
 const toolVersion = "0.1.0"
 
+var generatedBundleFiles = []string{"scaffold.html", "visual-packet.json", "final.png", "manifest.json"}
+
+type openAIImageBackend interface {
+	Name() string
+	Available(context.Context) backend.Capability
+	Generate(context.Context, backend.ImageRequest) error
+}
+
+var newOpenAIBackend = func() openAIImageBackend {
+	return backend.NewOpenAIBackend(backend.OpenAIConfig{})
+}
+
 type Options struct {
 	Sources   []string
 	OutputDir string
@@ -61,10 +73,13 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	if err != nil {
 		return model.Manifest{}, err
 	}
-	if len(evidence.Items) == 0 {
-		return model.Manifest{}, fmt.Errorf("no evidence gathered from %d source(s); warnings: %s", len(evidence.Sources), formatWarnings(evidence.Warnings))
-	}
 	publicEvidence := publicEvidenceBundle(evidence)
+	if len(publicEvidence.Items) == 0 {
+		if err := removeGeneratedBundleFiles(opts.OutputDir); err != nil {
+			return model.Manifest{}, fmt.Errorf("failed to clean generated bundle files after no evidence gathered: %w", err)
+		}
+		return model.Manifest{}, fmt.Errorf("no evidence gathered from %d source(s); warnings: %s", len(publicEvidence.Sources), formatWarnings(publicEvidence.Warnings))
+	}
 	visualPacket, err := packet.Build(publicEvidence, packet.BuildOptions{
 		Goal:     opts.Goal,
 		Style:    opts.Style,
@@ -204,7 +219,7 @@ func generateImage(ctx context.Context, opts Options, visualPacket model.VisualP
 	prompt := imagePrompt(packetJSON)
 	switch opts.Backend {
 	case "openai":
-		client := backend.NewOpenAIBackend(backend.OpenAIConfig{})
+		client := newOpenAIBackend()
 		request := backend.ImageRequest{Prompt: prompt, ScaffoldHTML: scaffoldHTML, OutputPath: outputPath}
 		promptResult, err := backend.BuildPrompt(request)
 		if err != nil {
@@ -220,7 +235,7 @@ func generateImage(ctx context.Context, opts Options, visualPacket model.VisualP
 			PromptTruncationMessage: promptResult.TruncationMessage,
 		}, nil
 	case "auto", "hybrid":
-		client := backend.NewOpenAIBackend(backend.OpenAIConfig{})
+		client := newOpenAIBackend()
 		capability := client.Available(ctx)
 		if capability.Available {
 			request := backend.ImageRequest{Prompt: prompt, ScaffoldHTML: scaffoldHTML, OutputPath: outputPath}
@@ -409,6 +424,15 @@ func writeJSONFile(path string, value any) ([]byte, error) {
 		return nil, err
 	}
 	return data, os.WriteFile(path, data, 0o600)
+}
+
+func removeGeneratedBundleFiles(outputDir string) error {
+	for _, name := range generatedBundleFiles {
+		if err := os.Remove(filepath.Join(outputDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", name, err)
+		}
+	}
+	return nil
 }
 
 func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {
