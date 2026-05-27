@@ -185,6 +185,56 @@ func TestBuildPreservesDenseResearchContent(t *testing.T) {
 	}
 }
 
+func TestBuildPacketFromPDFTextKeepsRichSignals(t *testing.T) {
+	bundle := model.EvidenceBundle{
+		SchemaVersion: "evidence/v1",
+		Sources: []model.SourceSpec{{
+			ID:    "src-paper",
+			Kind:  model.SourcePDF,
+			Input: "paper.pdf",
+		}},
+		Items: []model.EvidenceItem{{
+			ID:       "item-paper",
+			SourceID: "src-paper",
+			Kind:     "pdf_text",
+			Title:    "paper.pdf",
+			Text: strings.Join([]string{
+				"# Abstract",
+				"",
+				"SkillOpt reports +23.5 accuracy.",
+				"",
+				"# Core Papers",
+				"",
+				"### 1. Voyager",
+				"",
+				"- Date: 2023-05",
+				"- Result: solved 52/52 discovered tasks.",
+				"",
+				"# Timeline",
+				"",
+				"- 2025-01: SkillOpt reports automated skill prompt optimization.",
+				"",
+				"Open Questions",
+				"",
+				"1. How should agents choose overlapping skills?",
+				"",
+			}, "\n"),
+			SourceRefs: []string{"paper.pdf#page=1"},
+		}},
+	}
+
+	packet, err := Build(bundle, DefaultBuildOptions())
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(packet.Metrics) == 0 || len(packet.Timeline) == 0 || len(packet.Entities) == 0 || len(packet.OpenQuestions) == 0 {
+		t.Fatalf("packet missing rich PDF signals: metrics=%#v timeline=%#v entities=%#v questions=%#v", packet.Metrics, packet.Timeline, packet.Entities, packet.OpenQuestions)
+	}
+	if !packetHasQuestion(packet, "overlapping skills") {
+		t.Fatalf("packet questions missing expected PDF question: %#v", packet.OpenQuestions)
+	}
+}
+
 func TestBuildDoesNotDisplayAbsoluteLocalPaths(t *testing.T) {
 	const privatePath = "/Users/example/private/repo/docs/architecture.md"
 	bundle := model.EvidenceBundle{
@@ -599,6 +649,16 @@ func packetHasMetric(packet model.VisualPacket, value string) bool {
 func packetHasEntity(packet model.VisualPacket, name string) bool {
 	for _, entity := range packet.Entities {
 		if strings.Contains(entity.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func packetHasQuestion(packet model.VisualPacket, text string) bool {
+	text = strings.ToLower(text)
+	for _, question := range packet.OpenQuestions {
+		if strings.Contains(strings.ToLower(question.Text), text) {
 			return true
 		}
 	}

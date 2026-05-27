@@ -67,6 +67,9 @@ func splitMarkdownSections(text string) []markdownSection {
 		}
 		title, ok := markdownHeading(line)
 		if !ok {
+			title, ok = plainQuestionHeading(line)
+		}
+		if !ok {
 			current.Body = append(current.Body, line)
 			continue
 		}
@@ -93,6 +96,16 @@ func markdownHeading(line string) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(strings.TrimLeft(trimmed, "#")), true
+}
+
+func plainQuestionHeading(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	switch strings.ToLower(trimmed) {
+	case "open questions", "questions", "research questions":
+		return trimmed, true
+	default:
+		return "", false
+	}
 }
 
 func contentBlock(section markdownSection, refs []string, sourceKey string) model.ContentBlock {

@@ -114,6 +114,24 @@ func TestFromEvidencePreservesNumericLeadingEntityName(t *testing.T) {
 	assertEntity(t, result.Entities, "3D Skill")
 }
 
+func TestFromEvidencePromotesPDFOpenQuestionsHeading(t *testing.T) {
+	result := FromEvidence(model.EvidenceBundle{
+		Items: []model.EvidenceItem{{
+			ID:   "src-pdf",
+			Kind: "pdf_text",
+			Text: strings.Join([]string{
+				"# Abstract",
+				"SkillOpt reports +23.5 accuracy.",
+				"",
+				"Open Questions",
+				"1. How should agents choose overlapping skills?",
+			}, "\n"),
+		}},
+	})
+
+	assertQuestion(t, result.OpenQuestions, "overlapping skills")
+}
+
 func TestFromEvidenceFallsBackToSourceIDRefs(t *testing.T) {
 	result := FromEvidence(model.EvidenceBundle{
 		Items: []model.EvidenceItem{{
