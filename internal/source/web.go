@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -63,7 +64,21 @@ func gatherRemotePDF(ctx context.Context, spec model.SourceSpec, opts GatherOpti
 		return gatherResult{Warnings: []string{sourceWarning(spec, "remote PDF fetch failed for %q: %v", rawURL, err)}}
 	}
 
-	result := gatherResult{Warnings: []string{sourceWarning(spec, "PDF text extraction is not implemented in v0.1 for %q; downloaded %d bounded bytes and emitted no text evidence", rawURL, len(data))}}
+	tmp, err := os.CreateTemp("", "technical-visualizer-*.pdf")
+	if err != nil {
+		return gatherResult{Warnings: []string{sourceWarning(spec, "remote PDF temp file failed for %q: %v", rawURL, err)}}
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return gatherResult{Warnings: []string{sourceWarning(spec, "remote PDF temp file write failed for %q: %v", rawURL, err)}}
+	}
+	if err := tmp.Close(); err != nil {
+		return gatherResult{Warnings: []string{sourceWarning(spec, "remote PDF temp file close failed for %q: %v", rawURL, err)}}
+	}
+
+	result := gatherPDFText(ctx, spec, tmpPath, rawURL, sha256Hex(data), opts)
 	if truncated {
 		result.Warnings = append(result.Warnings, sourceWarning(spec, "remote PDF %q was truncated at MaxBytesPerFile=%d", rawURL, opts.MaxBytesPerFile))
 	}

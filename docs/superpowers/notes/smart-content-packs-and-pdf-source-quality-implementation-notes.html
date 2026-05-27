@@ -75,6 +75,14 @@
           story spine instead of becoming a multi-output container.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 2</div>
+        <p>
+          The PDF extractor seam now emits real <code>pdf_text</code> evidence when an extractor is
+          injected, but the package default remains unavailable until the Poppler adapter task.
+          Missing extraction returns no placeholder item and gives Poppler install guidance.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -119,6 +127,14 @@
           Content pack image paths stay out of <code>manifest.output_files</code> until files exist.
           Planned image paths live in <code>content-pack.json</code> so the manifest does not claim
           outputs that were not generated.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 2</div>
+        <p>
+          Remote PDF extraction keeps the existing bounded download behavior, writes those bytes to
+          a temporary file for the extractor seam, and hashes the bounded downloaded bytes rather
+          than the temporary path.
         </p>
       </div>
     </section>

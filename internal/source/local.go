@@ -91,14 +91,25 @@ func gatherLocalPDF(ctx context.Context, spec model.SourceSpec, opts GatherOptio
 		return gatherResult{Warnings: []string{sourceWarning(spec, "%s", err.Error())}}
 	}
 	path := sourceTarget(spec)
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return gatherResult{Warnings: []string{sourceWarning(spec, "PDF stat failed for %q: %v", path, err)}}
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return gatherResult{Warnings: []string{sourceWarning(spec, "PDF %q is a symlink; skipped text extraction", path)}}
+	}
+	if info.IsDir() {
+		return gatherResult{Warnings: []string{sourceWarning(spec, "PDF %q is a directory; skipped text extraction", path)}}
 	}
 	if info.Size() > opts.MaxBytesPerFile {
 		return gatherResult{Warnings: []string{sourceWarning(spec, "PDF %q exceeds MaxBytesPerFile (%d > %d); skipped text extraction", path, info.Size(), opts.MaxBytesPerFile)}}
 	}
-	return gatherResult{Warnings: []string{sourceWarning(spec, "PDF text extraction is not implemented in v0.1 for %q; file size %d bytes was bounded and no text evidence was emitted", path, info.Size())}}
+	// #nosec G304 -- direct local PDFs are caller-selected inputs and bounded before extraction.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return gatherResult{Warnings: []string{sourceWarning(spec, "PDF read failed for %q: %v", path, err)}}
+	}
+	return gatherPDFText(ctx, spec, path, filepath.Base(path), sha256Hex(data), opts)
 }
 
 func gatherLocalRepo(ctx context.Context, spec model.SourceSpec, opts GatherOptions) gatherResult {

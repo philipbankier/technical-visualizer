@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -273,12 +274,26 @@ func TestGatherRemoteMarkdownSource(t *testing.T) {
 	}
 }
 
-func TestGatherPDFProducesEvidenceOrBoundedWarning(t *testing.T) {
+func TestGatherLocalPDFUsesExtractorEvidence(t *testing.T) {
 	tmp := t.TempDir()
-	path := filepath.Join(tmp, "report.pdf")
-	if err := os.WriteFile(path, []byte("%PDF-1.4\n1 0 obj\n<<>>\nendobj\n"), 0o644); err != nil {
+	path := filepath.Join(tmp, "paper.pdf")
+	if err := os.WriteFile(path, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
+	restore := usePDFExtractorForTest(t, fakePDFExtractor{
+		result: pdfExtraction{
+			Engine:         "fake-pdftotext",
+			Version:        "fake 1.0",
+			PageCount:      2,
+			ExtractedPages: 2,
+			Text:           "# Abstract\n\nSkillOpt reports +23.5 accuracy.\n\n# 1 Introduction\n\n- 2025-01: SkillOpt reports results.",
+			PageRefs: []pdfPageRef{
+				{Page: 1, Ref: "paper.pdf#page=1"},
+				{Page: 2, Ref: "paper.pdf#page=2"},
+			},
+		},
+	})
+	defer restore()
 
 	spec := model.SourceSpec{
 		ID:       "src-pdf",
@@ -293,8 +308,140 @@ func TestGatherPDFProducesEvidenceOrBoundedWarning(t *testing.T) {
 	}
 
 	item := findItemBySource(bundle, "src-pdf")
-	if item == nil && !containsWarning(bundle.Warnings, "PDF") {
-		t.Fatalf("expected PDF text evidence or bounded warning, items=%#v warnings=%#v", bundle.Items, bundle.Warnings)
+	if item == nil {
+		t.Fatalf("expected PDF evidence item, warnings=%#v", bundle.Warnings)
+	}
+	if item.Kind != "pdf_text" {
+		t.Fatalf("Kind = %q, want pdf_text", item.Kind)
+	}
+	if !strings.Contains(item.Text, "SkillOpt reports +23.5 accuracy") {
+		t.Fatalf("Text = %q", item.Text)
+	}
+	if item.SHA256 == "" {
+		t.Fatalf("SHA256 is empty")
+	}
+	if item.Metadata["pdf_engine"] != "fake-pdftotext" || item.Metadata["pdf_pages_extracted"] != "2" {
+		t.Fatalf("Metadata = %#v", item.Metadata)
+	}
+	if !slices.Contains(item.SourceRefs, "paper.pdf#page=1") {
+		t.Fatalf("SourceRefs = %#v, want page ref", item.SourceRefs)
+	}
+}
+
+func TestGatherLocalPDFWarnsWhenExtractorUnavailable(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "paper.pdf")
+	if err := os.WriteFile(path, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	restore := usePDFExtractorForTest(t, fakePDFExtractor{
+		err: errPDFExtractorUnavailable,
+	})
+	defer restore()
+
+	spec := model.SourceSpec{
+		ID:       "src-pdf",
+		Kind:     model.SourcePDF,
+		Input:    path,
+		Resolved: path,
+	}
+
+	bundle, err := GatherAll(context.Background(), []model.SourceSpec{spec}, DefaultGatherOptions())
+	if err != nil {
+		t.Fatalf("GatherAll() error = %v", err)
+	}
+	if item := findItemBySource(bundle, "src-pdf"); item != nil {
+		t.Fatalf("unexpected PDF evidence item: %#v", item)
+	}
+	if !containsWarning(bundle.Warnings, "install Poppler") {
+		t.Fatalf("warnings = %#v, want install guidance", bundle.Warnings)
+	}
+}
+
+func TestGatherLocalPDFRedactsExtractedSecrets(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "paper.pdf")
+	if err := os.WriteFile(path, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	restore := usePDFExtractorForTest(t, fakePDFExtractor{
+		result: pdfExtraction{
+			Engine:         "fake-pdftotext",
+			Version:        "fake 1.0",
+			PageCount:      1,
+			ExtractedPages: 1,
+			Text:           "# Secrets\n\napi_key = extracted-secret-value-1234567890",
+		},
+	})
+	defer restore()
+
+	spec := model.SourceSpec{
+		ID:       "src-pdf",
+		Kind:     model.SourcePDF,
+		Input:    path,
+		Resolved: path,
+	}
+
+	bundle, err := GatherAll(context.Background(), []model.SourceSpec{spec}, DefaultGatherOptions())
+	if err != nil {
+		t.Fatalf("GatherAll() error = %v", err)
+	}
+	if containsAnyEvidenceText(bundle, "extracted-secret-value-1234567890") {
+		t.Fatalf("expected extracted PDF secret to be redacted from evidence text")
+	}
+	if !containsAnyEvidenceText(bundle, "[REDACTED]") {
+		t.Fatalf("expected redacted marker in PDF evidence text %#v", evidenceTexts(bundle))
+	}
+	if len(bundle.Redactions) == 0 {
+		t.Fatalf("expected redaction record for extracted PDF text")
+	}
+}
+
+func TestGatherRemotePDFUsesExtractorEvidence(t *testing.T) {
+	restore := usePDFExtractorForTest(t, fakePDFExtractor{
+		result: pdfExtraction{
+			Engine:         "fake-pdftotext",
+			Version:        "fake 1.0",
+			PageCount:      1,
+			ExtractedPages: 1,
+			Text:           "# Abstract\n\nRemote PDF reports source-backed claims.",
+			PageRefs:       []pdfPageRef{{Page: 1, Ref: "paper.pdf#page=1"}},
+		},
+	})
+	defer restore()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "%PDF-1.4\nremote fixture\n")
+	}))
+	defer server.Close()
+
+	rawURL := server.URL + "/paper.pdf"
+	spec := model.SourceSpec{
+		ID:       "src-remote-pdf",
+		Kind:     model.SourcePDF,
+		Input:    rawURL,
+		Resolved: rawURL,
+	}
+
+	bundle, err := GatherAll(context.Background(), []model.SourceSpec{spec}, DefaultGatherOptions())
+	if err != nil {
+		t.Fatalf("GatherAll() error = %v", err)
+	}
+	item := findItemBySource(bundle, "src-remote-pdf")
+	if item == nil {
+		t.Fatalf("expected remote PDF evidence item, warnings=%#v", bundle.Warnings)
+	}
+	if item.Kind != "pdf_text" {
+		t.Fatalf("Kind = %q, want pdf_text", item.Kind)
+	}
+	if item.URL != rawURL {
+		t.Fatalf("URL = %q, want %q", item.URL, rawURL)
+	}
+	if item.Path != "" {
+		t.Fatalf("Path = %q, want empty for remote PDF", item.Path)
+	}
+	if !slices.Contains(item.SourceRefs, rawURL+"#page=1") {
+		t.Fatalf("SourceRefs = %#v, want remote page ref", item.SourceRefs)
 	}
 }
 
@@ -468,4 +615,25 @@ func containsWarning(warnings []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+func usePDFExtractorForTest(t *testing.T, extractor fakePDFExtractor) func() {
+	t.Helper()
+	previous := defaultPDFExtractor
+	defaultPDFExtractor = extractor
+	return func() {
+		defaultPDFExtractor = previous
+	}
+}
+
+type fakePDFExtractor struct {
+	result pdfExtraction
+	err    error
+}
+
+func (f fakePDFExtractor) ExtractPDFText(context.Context, string, GatherOptions) (pdfExtraction, error) {
+	if f.err != nil {
+		return pdfExtraction{}, f.err
+	}
+	return f.result, nil
 }
