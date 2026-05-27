@@ -10,11 +10,15 @@
 
 Remote URL inputs may still be fetched unless `--offline` is set.
 
+PDF text extraction is also local. When Poppler `pdftotext` is installed, PDF files and fetched PDF URLs can produce `pdf_text` evidence. PDF-only runs can succeed when the extracted text has enough readable content. Scanned or image-only PDFs still fail with a low-evidence message instead of creating weak evidence.
+
 ## `openai`
 
 `openai` calls the OpenAI Images API with `gpt-image-2` when the renderer is `image` or `hybrid`. It requires `OPENAI_API_KEY`. It sends source-derived prompt content and scaffold HTML to OpenAI, writes the returned image to `final.png`, and fails if the remote generation call fails.
 
 Use this backend only when remote processing is acceptable for the source material.
+
+The current PDF parser does not send PDF bytes or extracted PDF content to a remote parsing service. Source-derived packet content can still be sent to OpenAI when this backend generates `final.png`.
 
 ## `auto`
 
@@ -41,3 +45,5 @@ Supported Codex environments may provide built-in image generation without `OPEN
 ## Offline
 
 `--offline` skips remote source fetching and remote image generation. `--backend openai --offline` is rejected because it asks for mutually exclusive behavior.
+
+`visualize doctor` reports Poppler as `Poppler pdftotext: available (local, version...)` when PDF extraction is available, or `Poppler pdftotext: unavailable (install Poppler for PDF-only sources)` when it is not.

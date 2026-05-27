@@ -111,6 +111,34 @@ func TestManifestNextStepsRoundTrip(t *testing.T) {
 	}
 }
 
+func TestManifestSourceDiagnosticsMarshal(t *testing.T) {
+	manifest := Manifest{
+		SchemaVersion: "manifest/v1",
+		Sources:       []SourceSpec{{ID: "src-paper", Kind: SourcePDF, Input: "paper.pdf"}},
+		Backend:       BackendInfo{Name: "local"},
+		Renderer:      "html",
+		Style:         "executive-dark",
+		NextSteps:     []string{"Open scaffold.html."},
+		Audit:         ManifestAudit{ToolVersion: "0.1.0", RequestedBackend: "local", SelectedBackend: "local", SourceCount: 1, EvidenceItemCount: 1},
+		SourceDiagnostics: []SourceDiagnostic{{
+			SourceID:       "src-paper",
+			Kind:           "pdf",
+			Engine:         "pdftotext",
+			Version:        "pdftotext 25.10.0",
+			PagesAttempted: 2,
+			PagesExtracted: 2,
+		}},
+		OutputFiles: []OutputFile{{Kind: "manifest", Path: "manifest.json"}},
+	}
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(data), `"source_diagnostics"`) || !strings.Contains(string(data), `"pdftotext"`) {
+		t.Fatalf("manifest JSON missing source diagnostics: %s", data)
+	}
+}
+
 func TestManifestAuditFieldsMarshal(t *testing.T) {
 	manifest := Manifest{
 		SchemaVersion: "manifest/v1",

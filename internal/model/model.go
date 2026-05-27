@@ -190,15 +190,27 @@ type SourceRef struct {
 }
 
 type Manifest struct {
-	SchemaVersion string        `json:"schema_version"`
-	Sources       []SourceSpec  `json:"sources,omitempty"`
-	Backend       BackendInfo   `json:"backend"`
-	Renderer      string        `json:"renderer"`
-	Style         string        `json:"style"`
-	Warnings      []string      `json:"warnings,omitempty"`
-	NextSteps     []string      `json:"next_steps,omitempty"`
-	Audit         ManifestAudit `json:"audit"`
-	OutputFiles   []OutputFile  `json:"output_files"`
+	SchemaVersion     string             `json:"schema_version"`
+	Sources           []SourceSpec       `json:"sources,omitempty"`
+	Backend           BackendInfo        `json:"backend"`
+	Renderer          string             `json:"renderer"`
+	Style             string             `json:"style"`
+	Warnings          []string           `json:"warnings,omitempty"`
+	NextSteps         []string           `json:"next_steps,omitempty"`
+	Audit             ManifestAudit      `json:"audit"`
+	SourceDiagnostics []SourceDiagnostic `json:"source_diagnostics,omitempty"`
+	OutputFiles       []OutputFile       `json:"output_files"`
+}
+
+type SourceDiagnostic struct {
+	SourceID       string   `json:"source_id"`
+	Kind           string   `json:"kind"`
+	Engine         string   `json:"engine,omitempty"`
+	Version        string   `json:"version,omitempty"`
+	PagesAttempted int      `json:"pages_attempted,omitempty"`
+	PagesExtracted int      `json:"pages_extracted,omitempty"`
+	Truncated      bool     `json:"truncated,omitempty"`
+	Warnings       []string `json:"warnings,omitempty"`
 }
 
 type ManifestAudit struct {

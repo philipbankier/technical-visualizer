@@ -375,6 +375,29 @@ func TestValidateBundleFailsWhenManifestSourceIsInvalid(t *testing.T) {
 	}
 }
 
+func TestValidateBundleFailsWhenSourceDiagnosticsReferenceUnknownSource(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><html><body>Acme Map</body></html>")
+	manifest := validManifest(dir)
+	manifest.SourceDiagnostics = []model.SourceDiagnostic{{
+		SourceID:       "missing-source",
+		Kind:           "pdf",
+		Engine:         "pdftotext",
+		Version:        "pdftotext 25.10.0",
+		PagesAttempted: 1,
+		PagesExtracted: 1,
+	}}
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "source_diagnostics") {
+		t.Fatalf("ValidateBundle() issues = %#v, want source diagnostics issue", issues)
+	}
+}
+
 func TestValidateBundleAllowsAparenteGistStyle(t *testing.T) {
 	dir := t.TempDir()
 	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}

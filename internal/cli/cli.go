@@ -5,8 +5,10 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/philipbankier/technical-visualizer/internal/backend"
 	"github.com/philipbankier/technical-visualizer/internal/pipeline"
@@ -128,6 +130,7 @@ func printDoctor(w io.Writer) {
 	fmt.Fprintln(w, "local renderer: available (local, fallback PNG and scaffold output)")
 	printNamedCapability(w, "OpenAI Images API", openAI, "direct image backend for --backend openai")
 	printNamedCapability(w, "Codex CLI", codex, "agent workflow only, not a direct image backend")
+	printPopplerStatus(w)
 }
 
 func printNamedCapability(w io.Writer, name string, capability backend.Capability, note string) {
@@ -144,6 +147,34 @@ func printNamedCapability(w io.Writer, name string, capability backend.Capabilit
 		reason = "no details"
 	}
 	fmt.Fprintf(w, "%s: %s (%s, %s; %s)\n", name, status, remote, reason, note)
+}
+
+func printPopplerStatus(w io.Writer) {
+	path, err := exec.LookPath("pdftotext")
+	if err != nil {
+		fmt.Fprintln(w, "Poppler pdftotext: unavailable (install Poppler for PDF-only sources)")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	// #nosec G204 -- path comes from exec.LookPath for the fixed pdftotext binary.
+	cmd := exec.CommandContext(ctx, path, "-v")
+	out, err := cmd.CombinedOutput()
+	version := firstNonEmptyLine(string(out))
+	if err != nil || version == "" {
+		version = "version unknown"
+	}
+	fmt.Fprintf(w, "Poppler pdftotext: available (local, %s)\n", version)
+}
+
+func firstNonEmptyLine(value string) string {
+	for _, line := range strings.Split(value, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func shellQuote(value string) string {

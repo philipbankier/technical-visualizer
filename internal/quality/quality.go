@@ -70,15 +70,16 @@ func validatePNG(path string) []Issue {
 }
 
 type manifestSummary struct {
-	SchemaVersion string              `json:"schema_version"`
-	Sources       []sourceSummary     `json:"sources"`
-	Backend       backendSummary      `json:"backend"`
-	Renderer      string              `json:"renderer"`
-	Style         string              `json:"style"`
-	Warnings      []string            `json:"warnings"`
-	NextSteps     []string            `json:"next_steps"`
-	Audit         auditSummary        `json:"audit"`
-	OutputFiles   []outputFileSummary `json:"output_files"`
+	SchemaVersion     string                    `json:"schema_version"`
+	Sources           []sourceSummary           `json:"sources"`
+	Backend           backendSummary            `json:"backend"`
+	Renderer          string                    `json:"renderer"`
+	Style             string                    `json:"style"`
+	Warnings          []string                  `json:"warnings"`
+	NextSteps         []string                  `json:"next_steps"`
+	Audit             auditSummary              `json:"audit"`
+	SourceDiagnostics []sourceDiagnosticSummary `json:"source_diagnostics"`
+	OutputFiles       []outputFileSummary       `json:"output_files"`
 }
 
 type auditSummary struct {
@@ -99,6 +100,17 @@ type sourceSummary struct {
 	ID    string `json:"id"`
 	Kind  string `json:"kind"`
 	Input string `json:"input"`
+}
+
+type sourceDiagnosticSummary struct {
+	SourceID       string   `json:"source_id"`
+	Kind           string   `json:"kind"`
+	Engine         string   `json:"engine"`
+	Version        string   `json:"version"`
+	PagesAttempted int      `json:"pages_attempted"`
+	PagesExtracted int      `json:"pages_extracted"`
+	Truncated      bool     `json:"truncated"`
+	Warnings       []string `json:"warnings"`
 }
 
 type backendSummary struct {
@@ -133,6 +145,7 @@ func validateManifest(dir string) []Issue {
 	for index, source := range manifest.Sources {
 		issues = append(issues, validateSource(index, source)...)
 	}
+	issues = append(issues, validateSourceDiagnostics(manifest.SourceDiagnostics, manifest.Sources)...)
 	if !allowedValue(manifest.Backend.Name, []string{"local", "openai"}) {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("backend.name = %q, want local or openai", manifest.Backend.Name)})
 	}
@@ -276,6 +289,32 @@ func validateSource(index int, source sourceSummary) []Issue {
 	}
 	if strings.TrimSpace(source.Input) == "" {
 		issues = append(issues, Issue{Path: "manifest.json", Message: prefix + " input must not be empty"})
+	}
+	return issues
+}
+
+func validateSourceDiagnostics(diagnostics []sourceDiagnosticSummary, sources []sourceSummary) []Issue {
+	sourceIDs := map[string]bool{}
+	for _, source := range sources {
+		sourceIDs[source.ID] = true
+	}
+	var issues []Issue
+	for index, diagnostic := range diagnostics {
+		prefix := fmt.Sprintf("source_diagnostics %d", index)
+		if strings.TrimSpace(diagnostic.SourceID) == "" {
+			issues = append(issues, Issue{Path: "manifest.json", Message: prefix + " source_id must not be empty"})
+		} else if !sourceIDs[diagnostic.SourceID] {
+			issues = append(issues, Issue{Path: "manifest.json", Message: prefix + " source_id must reference a manifest source"})
+		}
+		if !allowedValue(diagnostic.Kind, []string{"pdf"}) {
+			issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("%s kind = %q is not supported", prefix, diagnostic.Kind)})
+		}
+		if diagnostic.PagesAttempted < 0 {
+			issues = append(issues, Issue{Path: "manifest.json", Message: prefix + " pages_attempted must not be negative"})
+		}
+		if diagnostic.PagesExtracted < 0 {
+			issues = append(issues, Issue{Path: "manifest.json", Message: prefix + " pages_extracted must not be negative"})
+		}
 	}
 	return issues
 }

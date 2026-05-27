@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -69,6 +70,162 @@ func TestRunFailsWhenAllSourcesProduceNoEvidence(t *testing.T) {
 	}
 	if _, statErr := os.Stat(filepath.Join(outputDir, "manifest.json")); !os.IsNotExist(statErr) {
 		t.Fatalf("manifest.json exists after no-evidence run, stat error = %v", statErr)
+	}
+}
+
+func TestRunPDFOnlySucceedsWithPopplerTextEvidence(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "paper.pdf")
+	if err := os.WriteFile(sourcePath, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	useFakePDFToText(t, "pdftotext version 99.1.0", strings.Repeat("SkillOpt reports source-backed PDF extraction with readable architecture evaluation methods and limitations. ", 5), nil)
+	outputDir := filepath.Join(root, "out")
+
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(manifest.SourceDiagnostics) != 1 {
+		t.Fatalf("SourceDiagnostics = %#v, want one PDF diagnostic", manifest.SourceDiagnostics)
+	}
+	diagnostic := manifest.SourceDiagnostics[0]
+	if diagnostic.SourceID != manifest.Sources[0].ID || diagnostic.Kind != "pdf" || diagnostic.Engine != "pdftotext" {
+		t.Fatalf("SourceDiagnostics[0] = %#v, want pdftotext PDF diagnostic", diagnostic)
+	}
+	if diagnostic.Version != "pdftotext version 99.1.0" || diagnostic.PagesAttempted != 1 || diagnostic.PagesExtracted != 1 {
+		t.Fatalf("SourceDiagnostics[0] = %#v, want version and page counts", diagnostic)
+	}
+
+	data, err := os.ReadFile(filepath.Join(outputDir, "manifest.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(manifest.json) error = %v", err)
+	}
+	if !strings.Contains(string(data), `"source_diagnostics"`) || !strings.Contains(string(data), `"pdftotext version 99.1.0"`) {
+		t.Fatalf("manifest.json missing PDF diagnostics: %s", data)
+	}
+}
+
+func TestRunPDFOnlyFailsWithInstallGuidanceWhenPopplerUnavailable(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "paper.pdf")
+	if err := os.WriteFile(sourcePath, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: filepath.Join(root, "out"),
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want no-evidence PDF failure")
+	}
+	errText := err.Error()
+	for _, want := range []string{"no evidence", "install Poppler"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("Run() error = %q, want %q", errText, want)
+		}
+	}
+	if strings.Contains(errText, root) || strings.Contains(errText, sourcePath) {
+		t.Fatalf("Run() error leaked local path: %v", err)
+	}
+}
+
+func TestRunPDFOnlyFailsWithLowEvidenceGuidance(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "paper.pdf")
+	if err := os.WriteFile(sourcePath, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	useFakePDFToText(t, "pdftotext version 99.1.0", "OCR", nil)
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: filepath.Join(root, "out"),
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want low-evidence PDF failure")
+	}
+	errText := err.Error()
+	for _, want := range []string{"no evidence", "too little readable text"} {
+		if !strings.Contains(errText, want) {
+			t.Fatalf("Run() error = %q, want %q", errText, want)
+		}
+	}
+	if strings.Contains(errText, root) || strings.Contains(errText, sourcePath) {
+		t.Fatalf("Run() error leaked local path: %v", err)
+	}
+}
+
+func TestRunMixedMarkdownAndFailedPDFKeepsWarning(t *testing.T) {
+	root := t.TempDir()
+	markdownPath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(markdownPath, []byte("# System\n\nMarkdown evidence lets the run proceed."), 0o644); err != nil {
+		t.Fatalf("WriteFile(markdown) error = %v", err)
+	}
+	pdfPath := filepath.Join(root, "paper.pdf")
+	if err := os.WriteFile(pdfPath, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(pdf) error = %v", err)
+	}
+	t.Setenv("PATH", t.TempDir())
+
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{markdownPath, pdfPath},
+		OutputDir: filepath.Join(root, "out"),
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if !hasWarningContaining(manifest.Warnings, "install Poppler") {
+		t.Fatalf("warnings = %#v, want Poppler install guidance", manifest.Warnings)
+	}
+	if len(manifest.SourceDiagnostics) != 1 || len(manifest.SourceDiagnostics[0].Warnings) == 0 {
+		t.Fatalf("SourceDiagnostics = %#v, want PDF warning diagnostic", manifest.SourceDiagnostics)
+	}
+}
+
+func TestRunPDFOutputsDoNotLeakLocalPaths(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "private", "paper.pdf")
+	if err := os.MkdirAll(filepath.Dir(sourcePath), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(sourcePath, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	useFakePDFToText(t, "pdftotext version 99.1.0", strings.Repeat("PDF source output should retain source-backed text without leaking private local file paths or temp directories. ", 5), nil)
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	for _, name := range []string{"visual-packet.json", "manifest.json", "scaffold.html"} {
+		data, err := os.ReadFile(filepath.Join(outputDir, name))
+		if err != nil {
+			t.Fatalf("ReadFile(%s) error = %v", name, err)
+		}
+		text := string(data)
+		if strings.Contains(text, root) || strings.Contains(text, sourcePath) || strings.Contains(text, os.TempDir()) {
+			t.Fatalf("%s leaked local path or temp dir:\n%s", name, data)
+		}
 	}
 }
 
@@ -676,6 +833,32 @@ func hasOutputKind(files []model.OutputFile, kind string) bool {
 	return slices.ContainsFunc(files, func(file model.OutputFile) bool {
 		return file.Kind == kind
 	})
+}
+
+func useFakePDFToText(t *testing.T, version string, text string, stderr []byte) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fake pdftotext is Unix-only")
+	}
+	binDir := t.TempDir()
+	scriptPath := filepath.Join(binDir, "pdftotext")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"-v\" ]; then\n" +
+		"  printf '%s\\n' " + shellLiteral(version) + " >&2\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"printf '%s\\n' " + shellLiteral(text) + "\n"
+	if len(stderr) > 0 {
+		script += "printf '%s\\n' " + shellLiteral(string(stderr)) + " >&2\n"
+	}
+	if err := os.WriteFile(scriptPath, []byte(script), 0o700); err != nil {
+		t.Fatalf("WriteFile(fake pdftotext) error = %v", err)
+	}
+	t.Setenv("PATH", binDir)
+}
+
+func shellLiteral(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 type fakeOpenAIBackend struct {

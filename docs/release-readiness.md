@@ -37,7 +37,8 @@ go test -cover ./...
 - Explicit OpenAI generation requires `OPENAI_API_KEY`.
 - Generated bundles can contain source-derived content.
 - Direct local inputs that look like secrets, credentials, or private keys are rejected.
-- PDF files and URLs can be included alongside at least one text, repo, JSON, or docs source. v0.1 emits warnings and no PDF text evidence, so PDF-only runs fail with no evidence gathered.
+- PDF files and URLs use local Poppler `pdftotext` when installed. PDF-only runs can succeed when extraction produces enough readable text. Scanned or image-only PDFs still fail with a low-evidence message.
+- No PDF content is sent remotely unless the user chooses a remote image backend after packet creation, or a future explicit remote parsing mode is added and selected.
 - The CLI is not ready to expose as a hosted service without private-network URL guards, authentication, and source allowlists.
 
 ## Not Released Yet

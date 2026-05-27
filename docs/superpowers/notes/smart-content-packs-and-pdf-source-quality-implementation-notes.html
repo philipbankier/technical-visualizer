@@ -107,6 +107,14 @@
           narrow so broader paper heading inference remains owned by PDF normalization.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5</div>
+        <p>
+          PDF extraction diagnostics are derived in the pipeline from public evidence metadata and
+          public warnings, not from source package internals. This keeps manifest diagnostics
+          auditable while avoiding local absolute paths and temporary PDF paths.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -169,6 +177,22 @@
           instead of creating thin evidence items that look useful downstream.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5</div>
+        <p>
+          Pipeline tests fake Poppler by putting a temporary <code>pdftotext</code> executable on
+          <code>PATH</code>. This preserved the Task 5 file boundary and avoided exporting or editing
+          the package-local PDF extractor seam in <code>internal/source</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5 review</div>
+        <p>
+          After code-quality review, <code>visualize doctor</code> now reports only the first
+          non-empty <code>pdftotext -v</code> line. This keeps doctor output readable without changing
+          how Poppler availability is detected.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -215,6 +239,24 @@
         <p>
           Optional Poppler smoke was available locally: <code>/opt/homebrew/bin/pdftotext</code>,
           <code>pdftotext version 25.10.0</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5</div>
+        <p>
+          Red command: <code>go test ./internal/model ./internal/quality -run 'SourceDiagnostics|Manifest' -count=1</code>
+          failed because <code>SourceDiagnostic</code> and <code>Manifest.SourceDiagnostics</code> were
+          undefined. After implementation, the targeted PDF, doctor, source diagnostics, and
+          no-evidence tests passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5 review</div>
+        <p>
+          Added pipeline-level coverage for low-evidence PDF-only failures after spec review noted
+          it as a useful extra guard. The targeted command now includes PDF-only success, missing
+          Poppler, low-evidence PDF, mixed-source warning diagnostics, doctor output, and source
+          diagnostics validation.
         </p>
       </div>
     </section>

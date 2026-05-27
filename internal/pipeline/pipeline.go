@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/philipbankier/technical-visualizer/internal/backend"
@@ -149,14 +150,15 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 
 	warnings := append(append([]string(nil), publicEvidence.Warnings...), imageResult.Warnings...)
 	manifest := model.Manifest{
-		SchemaVersion: "manifest/v1",
-		Sources:       publicEvidence.Sources,
-		Backend:       imageResult.BackendInfo,
-		Renderer:      opts.Renderer,
-		Style:         opts.Style,
-		Warnings:      warnings,
-		NextSteps:     nextSteps(opts, imageResult),
-		Audit:         baselineAudit(opts, imageResult, publicEvidence, warnings),
+		SchemaVersion:     "manifest/v1",
+		Sources:           publicEvidence.Sources,
+		Backend:           imageResult.BackendInfo,
+		Renderer:          opts.Renderer,
+		Style:             opts.Style,
+		Warnings:          warnings,
+		NextSteps:         nextSteps(opts, imageResult),
+		Audit:             baselineAudit(opts, imageResult, publicEvidence, warnings),
+		SourceDiagnostics: sourceDiagnostics(publicEvidence),
 		OutputFiles: []model.OutputFile{
 			outputFile("scaffold", "scaffold.html", scaffoldPath),
 			outputFile("visual_packet", "visual-packet.json", packetPath),
@@ -192,6 +194,79 @@ func baselineAudit(opts Options, imageResult imageGenerationResult, publicEviden
 		PromptTruncated:         imageResult.PromptTruncated,
 		PromptTruncationMessage: imageResult.PromptTruncationMessage,
 	}
+}
+
+func sourceDiagnostics(evidence model.EvidenceBundle) []model.SourceDiagnostic {
+	warningsBySource := map[string][]string{}
+	for _, warning := range evidence.Warnings {
+		sourceID, ok := warningSourceID(warning)
+		if !ok {
+			continue
+		}
+		warningsBySource[sourceID] = append(warningsBySource[sourceID], warning)
+	}
+
+	diagnosticsBySource := map[string]model.SourceDiagnostic{}
+	for _, item := range evidence.Items {
+		if item.Kind != "pdf_text" {
+			continue
+		}
+		metadata := item.Metadata
+		diagnosticsBySource[item.SourceID] = model.SourceDiagnostic{
+			SourceID:       item.SourceID,
+			Kind:           "pdf",
+			Engine:         metadata["pdf_engine"],
+			Version:        metadata["pdf_engine_version"],
+			PagesAttempted: metadataInt(metadata, "pdf_page_count"),
+			PagesExtracted: metadataInt(metadata, "pdf_pages_extracted"),
+			Truncated:      metadataBool(metadata, "pdf_truncated"),
+			Warnings:       append([]string(nil), warningsBySource[item.SourceID]...),
+		}
+	}
+
+	diagnostics := make([]model.SourceDiagnostic, 0, len(diagnosticsBySource)+len(warningsBySource))
+	for _, spec := range evidence.Sources {
+		if spec.Kind != model.SourcePDF {
+			continue
+		}
+		diagnostic, ok := diagnosticsBySource[spec.ID]
+		if !ok {
+			if len(warningsBySource[spec.ID]) == 0 {
+				continue
+			}
+			diagnostic = model.SourceDiagnostic{
+				SourceID: spec.ID,
+				Kind:     "pdf",
+				Warnings: append([]string(nil), warningsBySource[spec.ID]...),
+			}
+		}
+		diagnostics = append(diagnostics, diagnostic)
+	}
+	return diagnostics
+}
+
+func warningSourceID(warning string) (string, bool) {
+	const prefix = "source "
+	if !strings.HasPrefix(warning, prefix) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(warning, prefix)
+	sourceID, _, ok := strings.Cut(rest, ":")
+	sourceID = strings.TrimSpace(sourceID)
+	return sourceID, ok && sourceID != ""
+}
+
+func metadataInt(metadata map[string]string, key string) int {
+	value, err := strconv.Atoi(strings.TrimSpace(metadata[key]))
+	if err != nil {
+		return 0
+	}
+	return value
+}
+
+func metadataBool(metadata map[string]string, key string) bool {
+	value, err := strconv.ParseBool(strings.TrimSpace(metadata[key]))
+	return err == nil && value
 }
 
 func nextSteps(opts Options, imageResult imageGenerationResult) []string {
@@ -668,30 +743,32 @@ func handoffOutputFiles(outputDir string, result handoff.Result) []model.OutputF
 
 func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {
 	type manifestJSON struct {
-		SchemaVersion string              `json:"schema_version"`
-		Sources       []model.SourceSpec  `json:"sources"`
-		Backend       model.BackendInfo   `json:"backend"`
-		Renderer      string              `json:"renderer"`
-		Style         string              `json:"style"`
-		Warnings      []string            `json:"warnings"`
-		NextSteps     []string            `json:"next_steps,omitempty"`
-		Audit         model.ManifestAudit `json:"audit"`
-		OutputFiles   []model.OutputFile  `json:"output_files"`
+		SchemaVersion     string                   `json:"schema_version"`
+		Sources           []model.SourceSpec       `json:"sources"`
+		Backend           model.BackendInfo        `json:"backend"`
+		Renderer          string                   `json:"renderer"`
+		Style             string                   `json:"style"`
+		Warnings          []string                 `json:"warnings"`
+		NextSteps         []string                 `json:"next_steps,omitempty"`
+		Audit             model.ManifestAudit      `json:"audit"`
+		SourceDiagnostics []model.SourceDiagnostic `json:"source_diagnostics,omitempty"`
+		OutputFiles       []model.OutputFile       `json:"output_files"`
 	}
 	warnings := append([]string(nil), manifest.Warnings...)
 	if warnings == nil {
 		warnings = []string{}
 	}
 	return writeJSONFile(path, manifestJSON{
-		SchemaVersion: manifest.SchemaVersion,
-		Sources:       manifest.Sources,
-		Backend:       manifest.Backend,
-		Renderer:      manifest.Renderer,
-		Style:         manifest.Style,
-		Warnings:      warnings,
-		NextSteps:     manifest.NextSteps,
-		Audit:         manifest.Audit,
-		OutputFiles:   manifest.OutputFiles,
+		SchemaVersion:     manifest.SchemaVersion,
+		Sources:           manifest.Sources,
+		Backend:           manifest.Backend,
+		Renderer:          manifest.Renderer,
+		Style:             manifest.Style,
+		Warnings:          warnings,
+		NextSteps:         manifest.NextSteps,
+		Audit:             manifest.Audit,
+		SourceDiagnostics: manifest.SourceDiagnostics,
+		OutputFiles:       manifest.OutputFiles,
 	})
 }
 

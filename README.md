@@ -19,6 +19,8 @@ Run backend checks with:
 visualize doctor
 ```
 
+Doctor also reports whether local Poppler `pdftotext` is available for PDF text extraction.
+
 ## Local And Offline
 
 Use local mode when source content should stay on the machine:
@@ -102,7 +104,7 @@ Supported v0.1 inputs:
 - Docs site URLs
 - Markdown files and URLs
 - JSON files as evidence inputs
-- PDF files and URLs, but only alongside at least one text, repo, JSON, or docs source. v0.1 emits warnings and no PDF text evidence, so PDF-only runs fail with no evidence gathered.
+- PDF files and URLs. The CLI uses local Poppler `pdftotext` when installed. PDF-only runs can succeed when extraction produces enough readable text. Scanned or image-only PDFs still fail with a low-evidence message.
 - Local repo paths
 
 Direct local inputs that look like secrets, credentials, or private keys are rejected. Repo scans skip secret-like files, generated directories, symlinks, large files, and binary-looking files by default.
@@ -112,6 +114,8 @@ Direct local inputs that look like secrets, credentials, or private keys are rej
 The default backend is `local`. Source-derived content is not uploaded just because `OPENAI_API_KEY` is present.
 
 Use `--offline` to avoid remote source fetching and remote image generation. Explicit `--backend openai --offline` is rejected before bundle files are written.
+
+PDF text extraction is local by default. PDF content is not sent to a remote service unless you choose a remote image backend after packet creation, or a future explicit remote parsing mode is added and selected.
 
 Generated bundles and cache directories use private permissions by default because they can contain source-derived content. Secrets are read from environment variables. Do not place API keys in source files.
 

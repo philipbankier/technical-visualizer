@@ -39,8 +39,39 @@ func TestRunDoctorReportsBackendStatusWithoutRemoteCredentials(t *testing.T) {
 			t.Fatalf("doctor output missing %q: %q", want, output)
 		}
 	}
+	if !strings.Contains(output, "Poppler pdftotext:") {
+		t.Fatalf("doctor output missing Poppler status: %q", output)
+	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestRunDoctorReportsPopplerUnavailableWithInstallGuidance(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	t.Setenv("PATH", t.TempDir())
+	var stdout, stderr bytes.Buffer
+
+	code := Run([]string{"doctor"}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("Run(doctor) code = %d, want 0; stderr=%q", code, stderr.String())
+	}
+	output := stdout.String()
+	for _, want := range []string{"Poppler pdftotext: unavailable", "install Poppler for PDF-only sources"} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("doctor output missing %q: %q", want, output)
+		}
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q, want empty", stderr.String())
+	}
+}
+
+func TestFirstNonEmptyLine(t *testing.T) {
+	got := firstNonEmptyLine("\n  pdftotext version 99.1.0  \nCopyright 2005-2026\n")
+	if got != "pdftotext version 99.1.0" {
+		t.Fatalf("firstNonEmptyLine() = %q", got)
 	}
 }
 
