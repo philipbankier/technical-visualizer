@@ -36,8 +36,11 @@ var generatedHandoffFiles = []string{
 var generatedPackFiles = []string{
 	"content-pack.json",
 	"pack/linkedin-dense/brief.md",
+	"pack/linkedin-dense/final.png",
 	"pack/social-teaser/brief.md",
+	"pack/social-teaser/final.png",
 	"pack/blog-og/brief.md",
+	"pack/blog-og/final.png",
 }
 
 type openAIImageBackend interface {
@@ -154,6 +157,15 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	if err != nil {
 		return model.Manifest{}, err
 	}
+	var packWarnings []string
+	if packResult.Written && shouldGeneratePackImages(opts, imageResult) {
+		result, warnings, err := generatePackImages(ctx, opts.OutputDir, string(packetJSON), string(scaffoldHTML), packResult)
+		if err != nil {
+			return model.Manifest{}, err
+		}
+		packResult = result
+		packWarnings = warnings
+	}
 	handoffResult := handoff.Result{}
 	if opts.Handoff == "codex" {
 		result, err := handoff.WriteCodexPackage(opts.OutputDir, visualPacket, handoff.Options{OutputImagePath: "final.png"})
@@ -178,7 +190,7 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		}
 	}
 
-	warnings := append(append([]string(nil), publicEvidence.Warnings...), imageResult.Warnings...)
+	warnings := append(append(append([]string(nil), publicEvidence.Warnings...), imageResult.Warnings...), packWarnings...)
 	manifest := model.Manifest{
 		SchemaVersion:     "manifest/v1",
 		Sources:           publicEvidence.Sources,
@@ -186,7 +198,7 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		Renderer:          opts.Renderer,
 		Style:             opts.Style,
 		Warnings:          warnings,
-		NextSteps:         nextSteps(opts, imageResult),
+		NextSteps:         nextSteps(opts, imageResult, packResult),
 		Audit:             baselineAudit(opts, imageResult, publicEvidence, warnings),
 		SourceDiagnostics: sourceDiagnostics(publicEvidence),
 		OutputFiles: []model.OutputFile{
@@ -302,7 +314,7 @@ func metadataBool(metadata map[string]string, key string) bool {
 	return err == nil && value
 }
 
-func nextSteps(opts Options, imageResult imageGenerationResult) []string {
+func nextSteps(opts Options, imageResult imageGenerationResult, packResult packWriteResult) []string {
 	var steps []string
 	if imageResult.BackendInfo.Name == "local" {
 		steps = append(steps, "Open scaffold.html first; visual-packet.json contains the source-backed content packet for this run.")
@@ -328,6 +340,12 @@ func nextSteps(opts Options, imageResult imageGenerationResult) []string {
 	}
 	if packEnabled(opts) {
 		steps = append(steps, "Open content-pack.json and pack/ target brief directories before producing target-specific images.")
+		if packResult.Written && packResult.ContentPack.Status == pack.StatusPartial {
+			steps = append(steps, "Content pack generation is partial; inspect content-pack.json for failed targets and reuse successful pack images.")
+		}
+		if packResult.Written && packResult.ContentPack.Status == pack.StatusComplete {
+			steps = append(steps, "Content pack images were generated for every target; inspect pack/ target directories and manifest.json.")
+		}
 	}
 	return steps
 }
@@ -631,6 +649,7 @@ type packWriteResult struct {
 	ContentPack           pack.ContentPack
 	ContentPackPath       string
 	BriefPaths            []string
+	PackImagePaths        []string
 	PackHandoffPromptPath string
 }
 
@@ -669,6 +688,96 @@ func contentPackHandoffReady(contentPack pack.ContentPack) pack.ContentPack {
 	}
 	contentPack.Status = pack.DeriveStatus(contentPack.Targets)
 	return contentPack
+}
+
+func shouldGeneratePackImages(opts Options, imageResult imageGenerationResult) bool {
+	return packEnabled(opts) && opts.Backend == "openai" && imageResult.BackendInfo.Name == "openai" && !imageResult.FallbackUsed
+}
+
+func generatePackImages(ctx context.Context, outputDir string, packetJSON string, scaffoldHTML string, result packWriteResult) (packWriteResult, []string, error) {
+	contentPack := result.ContentPack
+	client := newOpenAIBackend()
+	var warnings []string
+	result.PackImagePaths = nil
+
+	for i := range contentPack.Targets {
+		target := &contentPack.Targets[i]
+		if !safeBundleRelPath(target.OutputPath) {
+			target.State = pack.StateFailed
+			target.FailureReason = fmt.Sprintf("unsafe output path %q", target.OutputPath)
+			warnings = append(warnings, fmt.Sprintf("pack target %s failed: %s", target.ID, target.FailureReason))
+			continue
+		}
+		brief, err := readPackBrief(outputDir, target.BriefPath)
+		if err != nil {
+			target.State = pack.StateFailed
+			target.FailureReason = err.Error()
+			warnings = append(warnings, fmt.Sprintf("pack target %s failed: %s", target.ID, target.FailureReason))
+			continue
+		}
+		outputPath := filepath.Join(outputDir, filepath.FromSlash(target.OutputPath))
+		if err := ensureGeneratedPackDirsSafe(outputDir); err != nil {
+			return packWriteResult{}, nil, err
+		}
+		if err := os.Remove(outputPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			target.State = pack.StateFailed
+			target.FailureReason = err.Error()
+			warnings = append(warnings, fmt.Sprintf("pack target %s failed: %s", target.ID, err.Error()))
+			continue
+		}
+		request := backend.ImageRequest{
+			Prompt:            packTargetImagePrompt(packetJSON, brief, *target),
+			ScaffoldHTML:      scaffoldHTML,
+			OutputPath:        outputPath,
+			TargetID:          target.ID,
+			TargetAspectRatio: target.AspectRatio,
+		}
+		if err := client.Generate(ctx, request); err != nil {
+			_ = os.Remove(outputPath)
+			target.State = pack.StateFailed
+			target.FailureReason = err.Error()
+			warnings = append(warnings, fmt.Sprintf("pack target %s failed: %s", target.ID, err.Error()))
+			continue
+		}
+		target.State = pack.StateGenerated
+		target.FailureReason = ""
+		result.PackImagePaths = append(result.PackImagePaths, target.OutputPath)
+	}
+
+	contentPack.Status = pack.DeriveStatus(contentPack.Targets)
+	result.ContentPack = contentPack
+	if _, err := writeJSONFile(filepath.Join(outputDir, result.ContentPackPath), contentPack); err != nil {
+		return packWriteResult{}, nil, err
+	}
+	return result, warnings, nil
+}
+
+func readPackBrief(outputDir string, briefPath string) (string, error) {
+	if !safeBundleRelPath(briefPath) {
+		return "", fmt.Errorf("unsafe pack brief path %q", briefPath)
+	}
+	// #nosec G304 -- briefPath is a generated bundle-relative pack brief path.
+	data, err := os.ReadFile(filepath.Join(outputDir, filepath.FromSlash(briefPath)))
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+func packTargetImagePrompt(packetJSON string, brief string, target pack.TargetSpec) string {
+	return strings.Join([]string{
+		fmt.Sprintf("Create the %s image from this source-backed content pack target.", target.ID),
+		"Preserve required text exactly.",
+		"Do not invent facts, APIs, papers, numbers, dates, or recommendations.",
+		"Make it visually stunning while respecting the target density, intent, and aspect ratio.",
+		fmt.Sprintf("Use target aspect ratio %s as composition guidance only.", target.AspectRatio),
+		"",
+		"Target brief:",
+		brief,
+		"",
+		"Visual packet JSON:",
+		packetJSON,
+	}, "\n")
 }
 
 func writePackBriefFile(outputDir string, visualPacket model.VisualPacket, contentPack pack.ContentPack, target pack.TargetSpec) error {
@@ -1099,6 +1208,9 @@ func packOutputFiles(outputDir string, result packWriteResult) []model.OutputFil
 	}
 	for _, briefPath := range result.BriefPaths {
 		files = append(files, outputFile("pack_brief", briefPath, filepath.Join(outputDir, filepath.FromSlash(briefPath))))
+	}
+	for _, imagePath := range result.PackImagePaths {
+		files = append(files, outputFile("pack_image", imagePath, filepath.Join(outputDir, filepath.FromSlash(imagePath))))
 	}
 	if result.PackHandoffPromptPath != "" {
 		files = append(files, outputFile("handoff_pack_prompt", result.PackHandoffPromptPath, filepath.Join(outputDir, filepath.FromSlash(result.PackHandoffPromptPath))))

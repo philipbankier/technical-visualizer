@@ -279,8 +279,15 @@ func validatePackOutputFiles(dir string, outputs map[string][]outputFileSummary)
 		cleanPath, pathIssues := validateOutputFilePath("pack_image", file.Path)
 		issues = append(issues, pathIssues...)
 		if len(pathIssues) == 0 {
-			if target, ok := targetsByOutput[cleanPath]; ok && (target.State == "planned" || target.State == "handoff_ready") {
-				issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("pack_image %q cannot be declared for target %q in state %q", file.Path, target.ID, target.State)})
+			if !contentPackOK {
+				issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("pack_image %q requires content_pack output", file.Path)})
+			} else {
+				target, ok := targetsByOutput[cleanPath]
+				if !ok {
+					issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("pack_image %q does not match a content pack target output_path", file.Path)})
+				} else if target.State != "generated" && target.State != "verified" {
+					issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("pack_image %q cannot be declared for target %q in state %q", file.Path, target.ID, target.State)})
+				}
 			}
 			issues = append(issues, validateOutputFileHash(dir, "pack_image", cleanPath, file)...)
 		}

@@ -11,11 +11,13 @@ const (
 )
 
 type ImageRequest struct {
-	Prompt       string
-	ScaffoldHTML string
-	OutputPath   string
-	Size         string
-	Quality      string
+	Prompt            string
+	ScaffoldHTML      string
+	OutputPath        string
+	Size              string
+	Quality           string
+	TargetID          string
+	TargetAspectRatio string
 }
 
 type ImageBackend interface {

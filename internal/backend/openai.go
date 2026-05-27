@@ -180,6 +180,12 @@ func buildPrompt(request ImageRequest) (string, error) {
 func BuildPrompt(request ImageRequest) (PromptBuildResult, error) {
 	contentBrief := strings.TrimSpace(request.Prompt)
 	scaffoldHTML := strings.TrimSpace(request.ScaffoldHTML)
+	if targetID := strings.TrimSpace(request.TargetID); targetID != "" {
+		targetLead := fmt.Sprintf("Create the %s image from this source-backed content pack target.", targetID)
+		if !strings.Contains(contentBrief, targetLead) {
+			contentBrief = buildPackTargetPrompt(targetID, strings.TrimSpace(request.TargetAspectRatio), contentBrief)
+		}
+	}
 	if contentBrief == "" && scaffoldHTML == "" {
 		return PromptBuildResult{}, errors.New("openai image generation requires a prompt or scaffold HTML")
 	}
@@ -198,6 +204,23 @@ func BuildPrompt(request ImageRequest) (PromptBuildResult, error) {
 		Truncated:         truncated,
 		TruncationMessage: message,
 	}, nil
+}
+
+func buildPackTargetPrompt(targetID string, targetAspectRatio string, sourceMaterials string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Create the %s image from this source-backed content pack target.\n", targetID)
+	b.WriteString("Preserve required text exactly.\n")
+	b.WriteString("Do not invent facts, APIs, papers, numbers, dates, or recommendations.\n")
+	b.WriteString("Make it visually stunning while respecting the target density, intent, and aspect ratio.\n")
+	if targetAspectRatio != "" {
+		fmt.Fprintf(&b, "Use target aspect ratio %s as composition guidance only.\n", targetAspectRatio)
+	}
+	sourceMaterials = strings.TrimSpace(sourceMaterials)
+	if sourceMaterials != "" {
+		b.WriteString("\nSource-backed target materials:\n")
+		b.WriteString(sourceMaterials)
+	}
+	return b.String()
 }
 
 func capPrompt(prompt string) (string, bool, string) {

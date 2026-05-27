@@ -151,6 +151,15 @@
           without generating target images.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 9</div>
+        <p>
+          Direct OpenAI pack generation reuses the existing image backend and runs only after the
+          primary <code>final.png</code> succeeds. Each target updates <code>content-pack.json</code>
+          to <code>generated</code> or <code>failed</code>, and the manifest declares
+          <code>pack_image</code> only for target image files that exist.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -271,6 +280,14 @@
           workflow the user requested while preserving the older single-image prompt artifact.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 9</div>
+        <p>
+          Pack image generation is limited to explicit <code>--backend openai</code> in this slice.
+          That keeps <code>auto</code> and <code>hybrid</code> fallback behavior unchanged while direct
+          OpenAI runs gain multi-target generation and partial target failure handling.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -352,6 +369,15 @@
           failed because <code>pipeline.Options.Pack</code> and the CLI flag were missing, and
           quality validation accepted invalid content-pack declarations. After implementation, the
           same targeted command passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 9</div>
+        <p>
+          Red command: <code>go test ./internal/pipeline ./internal/backend ./internal/quality -run 'Pack.*OpenAI|Partial|BuildPrompt|PackImage' -count=1</code>
+          failed because target image request metadata and pack image generation were not wired, and
+          quality still accepted stale pack image declarations. After implementation, the same
+          targeted command passed.
         </p>
       </div>
     </section>

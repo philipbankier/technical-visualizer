@@ -340,6 +340,150 @@ func TestValidateBundleRejectsPackImageForPlannedTargets(t *testing.T) {
 	}
 }
 
+func TestValidateBundleAcceptsPackImageForGeneratedAndVerifiedTargets(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{
+		{
+			"id":          "linkedin-dense",
+			"brief_path":  "pack/linkedin-dense/brief.md",
+			"output_path": "pack/linkedin-dense/final.png",
+			"state":       "generated",
+		},
+		{
+			"id":          "social-teaser",
+			"brief_path":  "pack/social-teaser/brief.md",
+			"output_path": "pack/social-teaser/final.png",
+			"state":       "verified",
+		},
+	})
+	for _, rel := range []string{"pack/linkedin-dense/final.png", "pack/social-teaser/final.png"} {
+		writeTestPNG(t, filepath.Join(dir, filepath.FromSlash(rel)))
+	}
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/social-teaser/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "social-teaser", "brief.md"))},
+	)
+	for _, rel := range []string{"pack/linkedin-dense/final.png", "pack/social-teaser/final.png"} {
+		manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+			Kind:   "pack_image",
+			Path:   rel,
+			SHA256: sha256File(filepath.Join(dir, filepath.FromSlash(rel))),
+		})
+	}
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	if issues := ValidateBundle(dir); len(issues) != 0 {
+		t.Fatalf("ValidateBundle issues = %#v, want none", issues)
+	}
+}
+
+func TestValidateBundleRejectsPackImageForFailedTargets(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "failed",
+	}})
+	writeTestPNG(t, filepath.Join(dir, "pack", "linkedin-dense", "final.png"))
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_image", Path: "pack/linkedin-dense/final.png", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "final.png"))},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "state \"failed\"") {
+		t.Fatalf("ValidateBundle issues = %#v, want failed pack_image state issue", issues)
+	}
+}
+
+func TestValidateBundleRejectsMissingDeclaredPackImage(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "generated",
+	}})
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_image", Path: "pack/linkedin-dense/final.png", SHA256: "missing"},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "could not be checked") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing pack_image file issue", issues)
+	}
+}
+
+func TestValidateBundleRejectsPackImageOutsideContentPackTarget(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "generated",
+	}})
+	writeTestPNG(t, filepath.Join(dir, "pack", "other", "final.png"))
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_image", Path: "pack/other/final.png", SHA256: sha256File(filepath.Join(dir, "pack", "other", "final.png"))},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "does not match a content pack target output_path") {
+		t.Fatalf("ValidateBundle issues = %#v, want unknown pack_image target issue", issues)
+	}
+}
+
+func TestValidateBundleRejectsPackImageWithoutContentPack(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPNG(t, filepath.Join(dir, "pack", "linkedin-dense", "final.png"))
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+		Kind:   "pack_image",
+		Path:   "pack/linkedin-dense/final.png",
+		SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "final.png")),
+	})
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "requires content_pack") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing content_pack issue", issues)
+	}
+}
+
 func TestValidateBundleReportsMissingDeclaredPackHandoffPrompt(t *testing.T) {
 	dir := t.TempDir()
 	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
@@ -741,6 +885,9 @@ func sha256File(path string) string {
 func writeTestPNG(t *testing.T, path string) {
 	t.Helper()
 
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 2; x++ {

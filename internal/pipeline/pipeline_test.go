@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -333,6 +336,107 @@ func TestRunPackAutoWritesPackAndBriefs(t *testing.T) {
 	}
 }
 
+func TestRunPackOpenAIGeneratesEachTarget(t *testing.T) {
+	fake := &recordingOpenAIBackend{}
+	useOpenAIFake(t, fake)
+	outputDir := t.TempDir()
+
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "research-knowledge-base.md")},
+		OutputDir: outputDir,
+		Backend:   "openai",
+		Renderer:  "image",
+		Pack:      "auto",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(fake.Requests) != 4 {
+		t.Fatalf("OpenAI requests = %d, want 4 including primary final.png", len(fake.Requests))
+	}
+	for _, rel := range []string{"pack/linkedin-dense/final.png", "pack/social-teaser/final.png", "pack/blog-og/final.png"} {
+		if _, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("Stat(%s) error = %v", rel, err)
+		}
+	}
+	if countOutputKind(manifest.OutputFiles, "pack_image") != 3 {
+		t.Fatalf("manifest pack_image outputs = %#v, want three", manifest.OutputFiles)
+	}
+
+	contentPack := readContentPackFile(t, filepath.Join(outputDir, "content-pack.json"))
+	if contentPack.Status != pack.StatusComplete {
+		t.Fatalf("content pack status = %q, want %q", contentPack.Status, pack.StatusComplete)
+	}
+	for _, target := range contentPack.Targets {
+		if target.State != pack.StateGenerated {
+			t.Fatalf("target %q state = %q, want %q", target.ID, target.State, pack.StateGenerated)
+		}
+	}
+	for _, request := range fake.Requests[1:] {
+		if request.TargetID == "" {
+			t.Fatalf("pack request missing target id: %#v", request)
+		}
+		for _, want := range []string{
+			"Create the " + request.TargetID + " image from this source-backed content pack target.",
+			"Preserve required text exactly.",
+			"Do not invent facts, APIs, papers, numbers, dates, or recommendations.",
+			"Make it visually stunning while respecting the target density, intent, and aspect ratio.",
+			"Visual packet JSON:",
+			"Target brief:",
+		} {
+			if !strings.Contains(request.Prompt, want) {
+				t.Fatalf("request for %q missing %q:\n%s", request.TargetID, want, request.Prompt)
+			}
+		}
+		if request.TargetAspectRatio == "" {
+			t.Fatalf("request for %q missing target aspect ratio guidance", request.TargetID)
+		}
+	}
+}
+
+func TestRunPackOpenAIPartialFailureKeepsSuccessfulTargets(t *testing.T) {
+	fake := &recordingOpenAIBackend{FailTargetID: "social-teaser"}
+	useOpenAIFake(t, fake)
+	outputDir := t.TempDir()
+	writePipelineTestPNG(filepath.Join(outputDir, "pack", "social-teaser", "final.png"))
+
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "research-knowledge-base.md")},
+		OutputDir: outputDir,
+		Backend:   "openai",
+		Renderer:  "image",
+		Pack:      "auto",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want partial pack success", err)
+	}
+	assertNextStepContains(t, manifest.NextSteps, "partial")
+	if _, err := os.Stat(filepath.Join(outputDir, "pack", "linkedin-dense", "final.png")); err != nil {
+		t.Fatalf("successful target missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "pack", "blog-og", "final.png")); err != nil {
+		t.Fatalf("successful target missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "pack", "social-teaser", "final.png")); !os.IsNotExist(err) {
+		t.Fatalf("failed target image exists or stat error = %v", err)
+	}
+	if countOutputKind(manifest.OutputFiles, "pack_image") != 2 {
+		t.Fatalf("manifest pack_image outputs = %#v, want successful targets only", manifest.OutputFiles)
+	}
+
+	contentPack := readContentPackFile(t, filepath.Join(outputDir, "content-pack.json"))
+	if contentPack.Status != pack.StatusPartial {
+		t.Fatalf("content pack status = %q, want %q", contentPack.Status, pack.StatusPartial)
+	}
+	target := findPackTarget(contentPack, "social-teaser")
+	if target == nil {
+		t.Fatalf("content pack missing social-teaser target: %#v", contentPack.Targets)
+	}
+	if target.State != pack.StateFailed || !strings.Contains(target.FailureReason, "forced target failure") {
+		t.Fatalf("failed target = %#v, want failed state and reason", target)
+	}
+}
+
 func TestRunPackCodexHandoffWritesPackPrompt(t *testing.T) {
 	outputDir := t.TempDir()
 	manifest, err := Run(context.Background(), Options{
@@ -369,6 +473,9 @@ func TestRunPackCodexHandoffWritesPackPrompt(t *testing.T) {
 	}
 	if !hasOutputKind(manifest.OutputFiles, "handoff_pack_prompt") {
 		t.Fatalf("manifest output files missing pack prompt: %#v", manifest.OutputFiles)
+	}
+	if hasOutputKind(manifest.OutputFiles, "pack_image") {
+		t.Fatalf("codex handoff pack should not declare generated images: %#v", manifest.OutputFiles)
 	}
 
 	packData, err := os.ReadFile(filepath.Join(outputDir, "content-pack.json"))
@@ -860,6 +967,32 @@ func TestRunExplicitOpenAIFailsWhenGenerationFails(t *testing.T) {
 	}
 }
 
+func TestRunPackOpenAIPrimaryFailureFailsBeforePackTargets(t *testing.T) {
+	fake := &recordingOpenAIBackend{FailPrimary: true}
+	useOpenAIFake(t, fake)
+	outputDir := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "research-knowledge-base.md")},
+		OutputDir: outputDir,
+		Backend:   "openai",
+		Renderer:  "image",
+		Pack:      "auto",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want primary OpenAI failure")
+	}
+	if len(fake.Requests) != 1 {
+		t.Fatalf("OpenAI requests = %d, want only primary request", len(fake.Requests))
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "content-pack.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("content-pack.json should be restored away after failed run, stat error = %v", statErr)
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "pack", "linkedin-dense", "final.png")); !os.IsNotExist(statErr) {
+		t.Fatalf("pack target image exists after primary failure, stat error = %v", statErr)
+	}
+}
+
 func TestRunDefaultBackendStaysLocalWithAPIKey(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 	sourcePath := filepath.Join(t.TempDir(), "notes.md")
@@ -1165,14 +1298,14 @@ func TestRunAddsOfflineNextStep(t *testing.T) {
 func TestNextStepsDescribeOpenAIAndFallbackRuns(t *testing.T) {
 	openAISteps := nextSteps(Options{}, imageGenerationResult{
 		BackendInfo: model.BackendInfo{Name: "openai", Remote: true, Model: "gpt-image-2"},
-	})
+	}, packWriteResult{})
 	assertNextStepContains(t, openAISteps, "final.png")
 	assertNextStepContains(t, openAISteps, "manifest.json")
 
 	fallbackSteps := nextSteps(Options{}, imageGenerationResult{
 		BackendInfo:  model.BackendInfo{Name: "local", Remote: false},
 		FallbackUsed: true,
-	})
+	}, packWriteResult{})
 	assertNextStepContains(t, fallbackSteps, "fallback")
 	assertNextStepContains(t, fallbackSteps, "--backend openai")
 	assertNextStepContains(t, fallbackSteps, "--handoff codex")
@@ -1212,6 +1345,29 @@ func countOutputKind(files []model.OutputFile, kind string) int {
 		}
 	}
 	return count
+}
+
+func readContentPackFile(t *testing.T, path string) pack.ContentPack {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%q) error = %v", path, err)
+	}
+	var contentPack pack.ContentPack
+	if err := json.Unmarshal(data, &contentPack); err != nil {
+		t.Fatalf("Unmarshal(%q) error = %v", path, err)
+	}
+	return contentPack
+}
+
+func findPackTarget(contentPack pack.ContentPack, id string) *pack.TargetSpec {
+	for i := range contentPack.Targets {
+		if contentPack.Targets[i].ID == id {
+			return &contentPack.Targets[i]
+		}
+	}
+	return nil
 }
 
 func useFakePDFToText(t *testing.T, version string, text string, stderr []byte) {
@@ -1259,6 +1415,57 @@ func (fakeOpenAIBackend) Available(context.Context) backend.Capability {
 
 func (f fakeOpenAIBackend) Generate(context.Context, backend.ImageRequest) error {
 	return f.generateErr
+}
+
+type recordingOpenAIBackend struct {
+	Requests     []backend.ImageRequest
+	FailTargetID string
+	FailPrimary  bool
+}
+
+func (recordingOpenAIBackend) Name() string {
+	return "openai"
+}
+
+func (recordingOpenAIBackend) Available(context.Context) backend.Capability {
+	return backend.Capability{
+		Available: true,
+		Name:      "openai",
+		Reason:    "fake OpenAI backend is available",
+		Remote:    true,
+	}
+}
+
+func (b *recordingOpenAIBackend) Generate(_ context.Context, request backend.ImageRequest) error {
+	b.Requests = append(b.Requests, request)
+	if request.TargetID == "" && b.FailPrimary {
+		return errors.New("forced primary failure")
+	}
+	if request.TargetID != "" && request.TargetID == b.FailTargetID {
+		return errors.New("forced target failure for " + request.TargetID)
+	}
+	writePipelineTestPNG(request.OutputPath)
+	return nil
+}
+
+func writePipelineTestPNG(path string) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		panic(err)
+	}
+	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 2; x++ {
+			img.Set(x, y, color.RGBA{R: 20, G: 80, B: 140, A: 255})
+		}
+	}
+	file, err := os.Create(path)
+	if err != nil {
+		panic(err)
+	}
+	defer file.Close()
+	if err := png.Encode(file, img); err != nil {
+		panic(err)
+	}
 }
 
 func useOpenAIFake(t *testing.T, fake openAIImageBackend) {
