@@ -115,6 +115,15 @@
           auditable while avoiding local absolute paths and temporary PDF paths.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 6</div>
+        <p>
+          The first <code>internal/pack</code> planner is deterministic and only supports
+          <code>Mode: "auto"</code>. Required target content is selected from
+          <code>VisualPacket.RequiredText</code>, ranked claim text, and narrow structural tokens
+          such as <code>title</code>, <code>top claims</code>, and <code>core message</code>.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -183,6 +192,22 @@
           Pipeline tests fake Poppler by putting a temporary <code>pdftotext</code> executable on
           <code>PATH</code>. This preserved the Task 5 file boundary and avoided exporting or editing
           the package-local PDF extractor seam in <code>internal/source</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 6</div>
+        <p>
+          Pack planning uses planned target states by default and derives the overall pack status
+          from target states. The hyphenated pack wire value <code>handoff-ready</code> and the
+          underscored target wire value <code>handoff_ready</code> stay explicit in schema tests.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 6 review</div>
+        <p>
+          Unknown or empty target states now derive an overall <code>partial</code> status instead
+          of <code>planned</code>. This avoids hiding malformed target state data when the pipeline
+          starts writing pack artifacts.
         </p>
       </div>
       <div class="entry">
@@ -257,6 +282,14 @@
           it as a useful extra guard. The targeted command now includes PDF-only success, missing
           Poppler, low-evidence PDF, mixed-source warning diagnostics, doctor output, and source
           diagnostics validation.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 6</div>
+        <p>
+          Red command: <code>go test ./internal/pack -count=1</code> failed with undefined pack
+          symbols after adding the tests. After implementation, <code>go test ./internal/pack
+          -count=1</code> passed.
         </p>
       </div>
     </section>
