@@ -23,6 +23,16 @@ Use the printed POSIX shell command in an interactive Codex session. If quick mo
 
 Use this path when you want to use Codex or ChatGPT subscription access through the agent environment. The agent should save the generated image back into the bundle as `final.png` or another clear filename.
 
+## Content Pack Handoff Workflow
+
+```bash
+visualize --pack auto --backend local --renderer html --handoff codex --quick --out visualize-output https://github.com/example/service
+```
+
+Use the printed POSIX shell command in an interactive Codex session. If quick mode is not used, open `visualize-output/handoff/content-pack-codex-prompt.md` and use the target briefs under `visualize-output/pack/`.
+
+The agent should save each generated target image to the `output_path` listed in `content-pack.json`, for example `pack/linkedin-dense/final.png`.
+
 ## Direct OpenAI API Image Workflow
 
 ```bash
@@ -35,5 +45,5 @@ Use this path when you want the Go CLI itself to call the OpenAI Images API. Thi
 
 - `visualize --backend codex` is not supported in v0.1.
 - A ChatGPT or Codex subscription is separate from API billing and does not cover `--backend openai`.
-- Agent-generated images should be saved back into the bundle with a clear filename.
+- Single-image agent outputs should be saved back into the bundle as `final.png`; content-pack outputs should use each target `output_path`.
 - Do not hand private source to a remote agent or remote image tool unless that is acceptable for the project.

@@ -2,15 +2,18 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/philipbankier/technical-visualizer/internal/backend"
+	"github.com/philipbankier/technical-visualizer/internal/pack"
 	"github.com/philipbankier/technical-visualizer/internal/pipeline"
 )
 
@@ -68,6 +71,7 @@ func runPipeline(args []string, stdout io.Writer, stderr io.Writer) int {
 	if packMode == "auto" {
 		fmt.Fprintf(stdout, "Content pack: %s\n", filepath.Join(opts.OutputDir, "content-pack.json"))
 		fmt.Fprintf(stdout, "Pack briefs: %s\n", filepath.Join(opts.OutputDir, "pack"))
+		fmt.Fprintf(stdout, "Content pack planner: %s\n", actualContentPackPlanner(opts.OutputDir, opts.Planner))
 		if handoffMode == "codex" {
 			fmt.Fprintf(stdout, "Content pack Codex handoff: %s\n", filepath.Join(opts.OutputDir, "handoff", "content-pack-codex-prompt.md"))
 		}
@@ -96,6 +100,7 @@ func parsePipelineArgs(args []string, stderr io.Writer) (pipeline.Options, error
 	fs.StringVar(&opts.Handoff, "handoff", "", "handoff package: codex")
 	fs.BoolVar(&opts.Quick, "quick", false, "print a ready manual command for the selected handoff")
 	fs.StringVar(&opts.Pack, "pack", "off", "content pack mode: off or auto")
+	fs.StringVar(&opts.Planner, "planner", "deterministic", "content pack planner: deterministic or openai; openai requires --pack auto and OPENAI_API_KEY")
 	fs.Usage = func() { printUsage(stderr) }
 	if err := fs.Parse(args); err != nil {
 		return pipeline.Options{}, err
@@ -128,10 +133,37 @@ Common flags:
   --handoff       Optional handoff package, currently codex.
   --quick         Print a ready manual command for the selected handoff.
   --pack          Content pack mode: off or auto. Defaults to off.
+  --planner       Content pack planner: deterministic or openai. Defaults to deterministic.
+                  openai requires --pack auto and OPENAI_API_KEY; auto/hybrid backends may fall back.
 
 Unsupported in v0.1:
   gather, packet, render, codex image generation
 `)
+}
+
+func actualContentPackPlanner(outputDir string, fallback string) string {
+	fallback = strings.ToLower(strings.TrimSpace(fallback))
+	if fallback == "" {
+		fallback = "deterministic"
+	}
+	file, err := os.OpenInRoot(outputDir, "content-pack.json")
+	if err != nil {
+		return fallback
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return fallback
+	}
+	var contentPack pack.ContentPack
+	if err := json.Unmarshal(data, &contentPack); err != nil {
+		return fallback
+	}
+	plannerName := strings.ToLower(strings.TrimSpace(contentPack.Strategy.Planner))
+	if plannerName == "" {
+		return fallback
+	}
+	return plannerName
 }
 
 func printDoctor(w io.Writer) {

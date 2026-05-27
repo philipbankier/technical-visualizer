@@ -160,6 +160,26 @@
           <code>pack_image</code> only for target image files that exist.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10</div>
+        <p>
+          The LLM pack planner uses the OpenAI Responses API with Structured Outputs and a
+          <code>content-pack/v1</code> JSON schema. Returned plans are validated against allowed
+          target IDs, paths, states, and source-backed required content before any pack files are
+          written.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10 review</div>
+        <p>
+          Subagent review found that the initial planner slice allowed remote planning in
+          <code>--offline</code>, accepted empty packs, ignored incomplete Responses API results,
+          and pointed pack handoff next steps at the single-image prompt. The implementation now
+          rejects <code>--offline --planner openai</code>, requires the full target set, rejects
+          incomplete planner responses, and points pack handoff guidance at
+          <code>handoff/content-pack-codex-prompt.md</code>.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -288,6 +308,25 @@
           OpenAI runs gain multi-target generation and partial target failure handling.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10</div>
+        <p>
+          <code>--planner deterministic</code> remains the default release-safe path. When
+          <code>--planner openai</code> fails under <code>--backend auto</code> or
+          <code>--backend hybrid</code>, the pipeline falls back to deterministic planning with a
+          manifest warning; explicit <code>--backend openai</code> fails so remote-only runs do not
+          silently become partly local.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10 review</div>
+        <p>
+          The CLI reads the written <code>content-pack.json</code> before printing the planner line.
+          This is intentionally a small local read instead of adding another manifest field, and it
+          uses Go's <code>os.OpenInRoot</code> to keep the read scoped to the output bundle. Fallback
+          runs now say <code>deterministic</code> when the actual pack was deterministic.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -378,6 +417,25 @@
           failed because target image request metadata and pack image generation were not wired, and
           quality still accepted stale pack image declarations. After implementation, the same
           targeted command passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10</div>
+        <p>
+          Red command: <code>go test ./internal/pack ./internal/pipeline ./internal/cli -run 'Planner|Pack' -count=1</code>
+          failed because planner selection, the OpenAI planner, and the <code>--planner</code> CLI
+          flag did not exist. After implementation,
+          <code>go test ./internal/pack ./internal/pipeline ./internal/cli -run 'Planner|Pack|Fallback' -count=1</code>
+          passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10 review</div>
+        <p>
+          Red command: <code>go test ./internal/pack ./internal/pipeline ./internal/cli -run 'ValidateContentPackRejectsMissingTargets|OpenAIPlannerRejectsIncompleteResponse|OfflineOpenAIPlanner|AutoFallbackPrintsActualPlanner|PackCodexHandoffWritesPackPrompt' -count=1</code>
+          failed on the subagent review gaps before the fix and passed afterward. Security review
+          initially flagged the CLI planner read as an unscoped file read; switching it to
+          <code>os.OpenInRoot</code> made <code>GOTOOLCHAIN=go1.26.3 script/security</code> pass.
         </p>
       </div>
     </section>

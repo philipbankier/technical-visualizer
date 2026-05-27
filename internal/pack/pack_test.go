@@ -1,7 +1,10 @@
 package pack
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -96,6 +99,145 @@ func TestPlanRejectsUnsupportedMode(t *testing.T) {
 	_, err := Plan(sampleVisualPacket(), Options{Mode: "custom"})
 	if err == nil {
 		t.Fatalf("Plan() error = nil, want unsupported mode error")
+	}
+}
+
+func TestOpenAIPlannerBuildsStructuredOutputRequest(t *testing.T) {
+	var gotRequest struct {
+		Model string `json:"model"`
+		Input []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"input"`
+		Text struct {
+			Format struct {
+				Type   string         `json:"type"`
+				Name   string         `json:"name"`
+				Strict bool           `json:"strict"`
+				Schema map[string]any `json:"schema"`
+			} `json:"format"`
+		} `json:"text"`
+	}
+	responsePack := ContentPack{
+		SchemaVersion: "content-pack/v1",
+		SourcePacket:  "visual-packet.json",
+		Title:         "Technical Map: SkillOpt",
+		Status:        StatusPlanned,
+		Strategy:      Strategy{Planner: "openai", Summary: "selected targets"},
+		Targets:       openAIPlannerTargets(sampleVisualPacket()),
+	}
+	responseJSON, err := json.Marshal(responsePack)
+	if err != nil {
+		t.Fatalf("Marshal(response pack) error = %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" {
+			t.Fatalf("request path = %q, want /v1/responses", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer test-key" {
+			t.Fatalf("Authorization = %q, want Bearer test-key", got)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotRequest); err != nil {
+			t.Fatalf("Decode(request) error = %v", err)
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"output": []map[string]any{{
+				"type": "message",
+				"content": []map[string]string{{
+					"type": "output_text",
+					"text": string(responseJSON),
+				}},
+			}},
+		}); err != nil {
+			t.Fatalf("Encode(response) error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	planner := NewOpenAIPlanner(OpenAIPlannerConfig{
+		APIKey:     "test-key",
+		BaseURL:    server.URL,
+		HTTPClient: server.Client(),
+		Model:      "gpt-4o-mini",
+	})
+	contentPack, err := planner.Plan(context.Background(), sampleVisualPacket(), PlannerOptions{Mode: "auto"})
+	if err != nil {
+		t.Fatalf("Plan() error = %v", err)
+	}
+	if contentPack.Strategy.Planner != "openai" {
+		t.Fatalf("planner = %q, want openai", contentPack.Strategy.Planner)
+	}
+	if gotRequest.Model != "gpt-4o-mini" {
+		t.Fatalf("model = %q, want gpt-4o-mini", gotRequest.Model)
+	}
+	if gotRequest.Text.Format.Type != "json_schema" || gotRequest.Text.Format.Name != "content_pack" || !gotRequest.Text.Format.Strict {
+		t.Fatalf("text.format = %#v, want strict content_pack json_schema", gotRequest.Text.Format)
+	}
+	if gotRequest.Text.Format.Schema["type"] != "object" {
+		t.Fatalf("schema = %#v, want object schema", gotRequest.Text.Format.Schema)
+	}
+	requestText := marshalForSearch(t, gotRequest.Input)
+	for _, want := range []string{"linkedin-dense", "social-teaser", "blog-og", "planned", "visual-packet.json", "may not add factual claims"} {
+		if !strings.Contains(requestText, want) {
+			t.Fatalf("planner request missing %q:\n%s", want, requestText)
+		}
+	}
+}
+
+func TestValidateContentPackRejectsMissingTargets(t *testing.T) {
+	contentPack := validOpenAIContentPack(sampleVisualPacket())
+	contentPack.Targets = contentPack.Targets[:1]
+
+	err := ValidateContentPack(contentPack, sampleVisualPacket())
+	if err == nil {
+		t.Fatalf("ValidateContentPack() error = nil, want missing target error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "target") {
+		t.Fatalf("ValidateContentPack() error = %q, want target explanation", err)
+	}
+}
+
+func TestOpenAIPlannerRejectsIncompleteResponse(t *testing.T) {
+	responsePack := validOpenAIContentPack(sampleVisualPacket())
+	responseJSON, err := json.Marshal(responsePack)
+	if err != nil {
+		t.Fatalf("Marshal(response pack) error = %v", err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"status":             "incomplete",
+			"incomplete_details": map[string]string{"reason": "max_output_tokens"},
+			"output_text":        string(responseJSON),
+		}); err != nil {
+			t.Fatalf("Encode(response) error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	planner := NewOpenAIPlanner(OpenAIPlannerConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err = planner.Plan(context.Background(), sampleVisualPacket(), PlannerOptions{Mode: "auto"})
+	if err == nil {
+		t.Fatalf("Plan() error = nil, want incomplete response error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "incomplete") {
+		t.Fatalf("Plan() error = %q, want incomplete response explanation", err)
+	}
+}
+
+func TestOpenAIPlannerRejectsInvalidContentPack(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"output_text": `{"schema_version":"content-pack/v0","source_packet":"visual-packet.json","title":"Bad","status":"planned","strategy":{"planner":"openai","summary":"bad"},"targets":[]}`,
+		}); err != nil {
+			t.Fatalf("Encode(response) error = %v", err)
+		}
+	}))
+	defer server.Close()
+
+	planner := NewOpenAIPlanner(OpenAIPlannerConfig{APIKey: "test-key", BaseURL: server.URL, HTTPClient: server.Client()})
+	_, err := planner.Plan(context.Background(), sampleVisualPacket(), PlannerOptions{Mode: "auto"})
+	if err == nil {
+		t.Fatalf("Plan() error = nil, want invalid schema error")
 	}
 }
 
@@ -238,4 +380,34 @@ func allowedContentToken(text string) bool {
 	default:
 		return false
 	}
+}
+
+func validOpenAIContentPack(packet model.VisualPacket) ContentPack {
+	return ContentPack{
+		SchemaVersion: "content-pack/v1",
+		SourcePacket:  "visual-packet.json",
+		Title:         packet.Title,
+		Status:        StatusPlanned,
+		Strategy:      Strategy{Planner: "openai", Summary: "selected targets"},
+		Targets:       openAIPlannerTargets(packet),
+	}
+}
+
+func openAIPlannerTargets(packet model.VisualPacket) []TargetSpec {
+	targets := defaultTargetSpecs(packet)
+	for i := range targets {
+		targets[i].RequiredContent = []string{"title", packet.RequiredText[0]}
+		targets[i].Avoid = []string{"inventing unsupported metrics"}
+	}
+	return targets
+}
+
+func marshalForSearch(t *testing.T, value any) string {
+	t.Helper()
+
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	return string(data)
 }

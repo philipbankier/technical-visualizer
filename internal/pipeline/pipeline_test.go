@@ -336,6 +336,91 @@ func TestRunPackAutoWritesPackAndBriefs(t *testing.T) {
 	}
 }
 
+func TestPackPlannerDefaultsToDeterministic(t *testing.T) {
+	opts := normalizeOptions(Options{Pack: "auto"})
+	if opts.Planner != "deterministic" {
+		t.Fatalf("Planner = %q, want deterministic", opts.Planner)
+	}
+}
+
+func TestRunPackOpenAIPlannerFallsBackForAutoBackend(t *testing.T) {
+	useContentPackPlannerFactory(t, func(name string) contentPackPlanner {
+		if name != "openai" {
+			t.Fatalf("planner name = %q, want openai", name)
+		}
+		return failingContentPackPlanner{err: errors.New("forced planner failure")}
+	})
+	outputDir := t.TempDir()
+
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "research-knowledge-base.md")},
+		OutputDir: outputDir,
+		Backend:   "auto",
+		Renderer:  "html",
+		Pack:      "auto",
+		Planner:   "openai",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v, want deterministic fallback", err)
+	}
+	if !hasWarningContaining(manifest.Warnings, "OpenAI planner failed") {
+		t.Fatalf("warnings = %#v, want OpenAI planner fallback warning", manifest.Warnings)
+	}
+	contentPack := readContentPackFile(t, filepath.Join(outputDir, "content-pack.json"))
+	if contentPack.Strategy.Planner != "deterministic" {
+		t.Fatalf("content pack planner = %q, want deterministic fallback", contentPack.Strategy.Planner)
+	}
+}
+
+func TestRunRejectsOfflineOpenAIPlannerBeforeWrites(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nOffline mode must reject remote pack planning."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "auto",
+		Renderer:  "html",
+		Offline:   true,
+		Pack:      "auto",
+		Planner:   "openai",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want offline planner rejection")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "--offline") || !strings.Contains(strings.ToLower(err.Error()), "--planner openai") {
+		t.Fatalf("Run() error = %q, want offline planner explanation", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "content-pack.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("content-pack.json exists after rejected run, stat error = %v", statErr)
+	}
+}
+
+func TestRunPackOpenAIPlannerFailsForExplicitBackend(t *testing.T) {
+	useContentPackPlannerFactory(t, func(name string) contentPackPlanner {
+		return failingContentPackPlanner{err: errors.New("forced planner failure")}
+	})
+	outputDir := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "research-knowledge-base.md")},
+		OutputDir: outputDir,
+		Backend:   "openai",
+		Renderer:  "image",
+		Pack:      "auto",
+		Planner:   "openai",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want explicit planner failure")
+	}
+	if !strings.Contains(err.Error(), "forced planner failure") {
+		t.Fatalf("Run() error = %q, want planner failure reason", err)
+	}
+}
+
 func TestRunPackOpenAIGeneratesEachTarget(t *testing.T) {
 	fake := &recordingOpenAIBackend{}
 	useOpenAIFake(t, fake)
@@ -477,6 +562,9 @@ func TestRunPackCodexHandoffWritesPackPrompt(t *testing.T) {
 	if hasOutputKind(manifest.OutputFiles, "pack_image") {
 		t.Fatalf("codex handoff pack should not declare generated images: %#v", manifest.OutputFiles)
 	}
+	assertNextStepContains(t, manifest.NextSteps, "handoff/content-pack-codex-prompt.md")
+	assertNextStepContains(t, manifest.NextSteps, "pack/")
+	assertNoNextStepContains(t, manifest.NextSteps, "open handoff/codex-prompt.md")
 
 	packData, err := os.ReadFile(filepath.Join(outputDir, "content-pack.json"))
 	if err != nil {
@@ -1466,6 +1554,23 @@ func writePipelineTestPNG(path string) {
 	if err := png.Encode(file, img); err != nil {
 		panic(err)
 	}
+}
+
+type failingContentPackPlanner struct {
+	err error
+}
+
+func (p failingContentPackPlanner) Plan(context.Context, model.VisualPacket, pack.PlannerOptions) (pack.ContentPack, error) {
+	return pack.ContentPack{}, p.err
+}
+
+func useContentPackPlannerFactory(t *testing.T, factory func(string) contentPackPlanner) {
+	t.Helper()
+	original := newContentPackPlanner
+	newContentPackPlanner = factory
+	t.Cleanup(func() {
+		newContentPackPlanner = original
+	})
 }
 
 func useOpenAIFake(t *testing.T, fake openAIImageBackend) {

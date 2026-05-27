@@ -134,7 +134,7 @@ func TestRunPackAutoWritesSuccessOutput(t *testing.T) {
 		t.Fatalf("Run(make --pack auto) code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
 	}
 	got := stdout.String()
-	for _, want := range []string{"content-pack.json", filepath.Join(outputDir, "pack")} {
+	for _, want := range []string{"content-pack.json", filepath.Join(outputDir, "pack"), "Content pack planner: deterministic"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("stdout missing %q in: %s", want, got)
 		}
@@ -203,6 +203,100 @@ func TestRunUnsupportedPackValueFailsBeforeWrites(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outputDir, "content-pack.json")); !os.IsNotExist(err) {
 		t.Fatalf("content-pack.json exists after rejected run, stat error = %v", err)
+	}
+}
+
+func TestRunUnsupportedPlannerValueFailsBeforeWrites(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{"--pack", "auto", "--planner", "random", "--out", outputDir, sourcePath}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Fatalf("Run() code = 0, want unsupported planner failure")
+	}
+	if !strings.Contains(strings.ToLower(stderr.String()), "unsupported planner") {
+		t.Fatalf("stderr missing planner explanation: %q", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "content-pack.json")); !os.IsNotExist(err) {
+		t.Fatalf("content-pack.json exists after rejected run, stat error = %v", err)
+	}
+}
+
+func TestRunOpenAIPlannerWithoutPackFailsBeforeWrites(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{"--planner", "openai", "--out", outputDir, sourcePath}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Fatalf("Run() code = 0, want planner without pack failure")
+	}
+	if !strings.Contains(strings.ToLower(stderr.String()), "--planner openai requires --pack auto") {
+		t.Fatalf("stderr missing planner/pack explanation: %q", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "content-pack.json")); !os.IsNotExist(err) {
+		t.Fatalf("content-pack.json exists after rejected run, stat error = %v", err)
+	}
+}
+
+func TestRunOpenAIPlannerOfflineFailsBeforeWrites(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{"--offline", "--pack", "auto", "--planner", "openai", "--out", outputDir, sourcePath}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Fatalf("Run() code = 0, want offline planner failure")
+	}
+	if !strings.Contains(strings.ToLower(stderr.String()), "--offline") || !strings.Contains(strings.ToLower(stderr.String()), "--planner openai") {
+		t.Fatalf("stderr missing offline planner explanation: %q", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "content-pack.json")); !os.IsNotExist(err) {
+		t.Fatalf("content-pack.json exists after rejected run, stat error = %v", err)
+	}
+}
+
+func TestRunOpenAIPlannerAutoFallbackPrintsActualPlanner(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "")
+	outputDir := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{
+		"make",
+		"--backend", "auto",
+		"--renderer", "html",
+		"--pack", "auto",
+		"--planner", "openai",
+		"--out", outputDir,
+		filepath.Join("..", "..", "testdata", "research-knowledge-base.md"),
+	}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("Run(make --planner openai fallback) code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	got := stdout.String()
+	if !strings.Contains(got, "Content pack planner: deterministic") {
+		t.Fatalf("stdout missing actual fallback planner in: %s", got)
+	}
+	if strings.Contains(got, "Content pack planner: openai") {
+		t.Fatalf("stdout printed requested planner instead of actual planner: %s", got)
 	}
 }
 

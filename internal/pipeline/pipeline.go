@@ -49,8 +49,19 @@ type openAIImageBackend interface {
 	Generate(context.Context, backend.ImageRequest) error
 }
 
+type contentPackPlanner interface {
+	Plan(context.Context, model.VisualPacket, pack.PlannerOptions) (pack.ContentPack, error)
+}
+
 var newOpenAIBackend = func() openAIImageBackend {
 	return backend.NewOpenAIBackend(backend.OpenAIConfig{})
+}
+
+var newContentPackPlanner = func(name string) contentPackPlanner {
+	if name == "openai" {
+		return pack.NewOpenAIPlanner(pack.OpenAIPlannerConfig{})
+	}
+	return pack.DeterministicPlanner{}
 }
 
 type Options struct {
@@ -64,6 +75,7 @@ type Options struct {
 	Handoff   string
 	Quick     bool
 	Pack      string
+	Planner   string
 }
 
 type imageGenerationResult struct {
@@ -136,8 +148,14 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		return model.Manifest{}, err
 	}
 	packResult := packWriteResult{}
+	var plannerWarnings []string
 	if packEnabled(opts) {
-		result, err := writeContentPackBundle(opts.OutputDir, visualPacket, opts.Handoff == "codex")
+		contentPack, warnings, err := planContentPack(ctx, visualPacket, opts)
+		if err != nil {
+			return model.Manifest{}, err
+		}
+		plannerWarnings = warnings
+		result, err := writeContentPackBundle(opts.OutputDir, visualPacket, contentPack, opts.Handoff == "codex")
 		if err != nil {
 			return model.Manifest{}, err
 		}
@@ -190,7 +208,7 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		}
 	}
 
-	warnings := append(append(append([]string(nil), publicEvidence.Warnings...), imageResult.Warnings...), packWarnings...)
+	warnings := append(append(append(append([]string(nil), publicEvidence.Warnings...), plannerWarnings...), imageResult.Warnings...), packWarnings...)
 	manifest := model.Manifest{
 		SchemaVersion:     "manifest/v1",
 		Sources:           publicEvidence.Sources,
@@ -320,7 +338,11 @@ func nextSteps(opts Options, imageResult imageGenerationResult, packResult packW
 		steps = append(steps, "Open scaffold.html first; visual-packet.json contains the source-backed content packet for this run.")
 		steps = append(steps, "For a polished OpenAI image, set OPENAI_API_KEY and rerun with --backend openai --renderer image.")
 		if imageResult.HandoffWritten {
-			steps = append(steps, "For Codex image generation, open handoff/codex-prompt.md and run it in interactive Codex.")
+			if packEnabled(opts) && packResult.Written {
+				steps = append(steps, "For Codex content-pack image generation, open handoff/content-pack-codex-prompt.md and use the target briefs under pack/.")
+			} else {
+				steps = append(steps, "For Codex image generation, open handoff/codex-prompt.md and run it in interactive Codex.")
+			}
 		} else {
 			steps = append(steps, "For a guided Codex package, rerun with --handoff codex.")
 		}
@@ -330,7 +352,11 @@ func nextSteps(opts Options, imageResult imageGenerationResult, packResult packW
 	}
 	if imageResult.FallbackUsed {
 		if imageResult.HandoffWritten {
-			steps = append(steps, "The run used a local fallback; open handoff/codex-prompt.md for the interactive Codex path.")
+			if packEnabled(opts) && packResult.Written {
+				steps = append(steps, "The run used a local fallback; open handoff/content-pack-codex-prompt.md for the interactive Codex content-pack path.")
+			} else {
+				steps = append(steps, "The run used a local fallback; open handoff/codex-prompt.md for the interactive Codex path.")
+			}
 		} else {
 			steps = append(steps, "The run used a local fallback; use explicit --backend openai or --handoff codex for a polished image path.")
 		}
@@ -370,6 +396,10 @@ func normalizeOptions(opts Options) Options {
 	opts.Renderer = strings.ToLower(strings.TrimSpace(opts.Renderer))
 	opts.Handoff = strings.ToLower(strings.TrimSpace(opts.Handoff))
 	opts.Pack = strings.ToLower(strings.TrimSpace(opts.Pack))
+	opts.Planner = strings.ToLower(strings.TrimSpace(opts.Planner))
+	if opts.Planner == "" {
+		opts.Planner = "deterministic"
+	}
 	return opts
 }
 
@@ -399,6 +429,18 @@ func validateOptions(opts Options) error {
 	case "", "off", "auto":
 	default:
 		return fmt.Errorf("unsupported pack %q", opts.Pack)
+	}
+
+	switch opts.Planner {
+	case "", "deterministic", "openai":
+	default:
+		return fmt.Errorf("unsupported planner %q", opts.Planner)
+	}
+	if !packEnabled(opts) && opts.Planner == "openai" {
+		return errors.New("--planner openai requires --pack auto")
+	}
+	if opts.Offline && opts.Planner == "openai" {
+		return errors.New("--offline cannot be used with --planner openai")
 	}
 
 	if opts.Quick && opts.Handoff != "codex" {
@@ -653,11 +695,27 @@ type packWriteResult struct {
 	PackHandoffPromptPath string
 }
 
-func writeContentPackBundle(outputDir string, visualPacket model.VisualPacket, handoffReady bool) (packWriteResult, error) {
-	contentPack, err := pack.Plan(visualPacket, pack.Options{Mode: "auto"})
-	if err != nil {
-		return packWriteResult{}, err
+func planContentPack(ctx context.Context, visualPacket model.VisualPacket, opts Options) (pack.ContentPack, []string, error) {
+	plannerName := opts.Planner
+	if plannerName == "" {
+		plannerName = "deterministic"
 	}
+	planner := newContentPackPlanner(plannerName)
+	contentPack, err := planner.Plan(ctx, visualPacket, pack.PlannerOptions{Mode: opts.Pack})
+	if err == nil {
+		return contentPack, nil, nil
+	}
+	if plannerName == "openai" && (opts.Backend == "auto" || opts.Backend == "hybrid") {
+		fallbackPack, fallbackErr := pack.DeterministicPlanner{}.Plan(ctx, visualPacket, pack.PlannerOptions{Mode: opts.Pack})
+		if fallbackErr != nil {
+			return pack.ContentPack{}, nil, fallbackErr
+		}
+		return fallbackPack, []string{"OpenAI planner failed; used deterministic pack planner fallback: " + err.Error()}, nil
+	}
+	return pack.ContentPack{}, nil, err
+}
+
+func writeContentPackBundle(outputDir string, visualPacket model.VisualPacket, contentPack pack.ContentPack, handoffReady bool) (packWriteResult, error) {
 	if handoffReady {
 		contentPack = contentPackHandoffReady(contentPack)
 	}
