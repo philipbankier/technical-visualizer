@@ -1,0 +1,80 @@
+{
+  "schema_version": "content-pack/v1",
+  "source_packet": "visual-packet.json",
+  "title": "Technical Map: notes.md",
+  "status": "planned",
+  "strategy": {
+    "planner": "deterministic",
+    "summary": "Deterministic auto plan for three targets using 5 required text items and 1 ranked claims."
+  },
+  "targets": [
+    {
+      "id": "linkedin-dense",
+      "platform": "linkedin",
+      "intent": "technical deep-dive infographic",
+      "density": "high",
+      "aspect_ratio": "16:9",
+      "brief_path": "pack/linkedin-dense/brief.md",
+      "output_path": "pack/linkedin-dense/final.png",
+      "state": "planned",
+      "required_content": [
+        "title",
+        "top claims",
+        "Technical Map: notes.md",
+        "notes.md",
+        "Acme Orders Service",
+        "Components",
+        "Risks",
+        "notes.md describes Components: - HTTP API receives order submissions."
+      ],
+      "avoid": [
+        "inventing unsupported metrics",
+        "using unreadable tiny text"
+      ]
+    },
+    {
+      "id": "social-teaser",
+      "platform": "social",
+      "intent": "pretty lower-density social preview",
+      "density": "low",
+      "aspect_ratio": "1:1",
+      "brief_path": "pack/social-teaser/brief.md",
+      "output_path": "pack/social-teaser/final.png",
+      "state": "planned",
+      "required_content": [
+        "title",
+        "core message",
+        "Technical Map: notes.md",
+        "notes.md describes Components: - HTTP API receives order submissions."
+      ],
+      "avoid": [
+        "inventing unsupported metrics",
+        "using unreadable tiny text"
+      ]
+    },
+    {
+      "id": "blog-og",
+      "platform": "blog",
+      "intent": "article and README open graph hero",
+      "density": "medium",
+      "aspect_ratio": "1.91:1",
+      "brief_path": "pack/blog-og/brief.md",
+      "output_path": "pack/blog-og/final.png",
+      "state": "planned",
+      "required_content": [
+        "title",
+        "top claims",
+        "Technical Map: notes.md",
+        "notes.md",
+        "Acme Orders Service",
+        "Components",
+        "Risks",
+        "notes.md describes Components: - HTTP API receives order submissions."
+      ],
+      "avoid": [
+        "inventing unsupported metrics",
+        "using unreadable tiny text"
+      ]
+    }
+  ]
+}

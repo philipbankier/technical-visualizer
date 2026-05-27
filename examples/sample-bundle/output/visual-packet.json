@@ -18,7 +18,7 @@
       "kind": "evidence",
       "confidence": "source-backed",
       "source_refs": [
-        "src-c5ed5ffb78af"
+        "src-c1d440571364"
       ]
     }
   ],
@@ -27,7 +27,7 @@
       "id": "fact-1",
       "text": "notes.md evidence states Components: - HTTP API receives order submissions.",
       "source_refs": [
-        "src-c5ed5ffb78af"
+        "src-c1d440571364"
       ]
     }
   ],
@@ -57,17 +57,17 @@
   ],
   "content_blocks": [
     {
-      "id": "block-83d632a549fb",
+      "id": "block-7e8b3580d9f6",
       "kind": "section",
       "title": "Acme Orders Service",
       "summary": "The Acme Orders Service accepts order requests, validates inventory, stores order state, and publishes fulfillment events.",
       "text": "The Acme Orders Service accepts order requests, validates inventory, stores order state, and publishes fulfillment events.",
       "source_refs": [
-        "src-c5ed5ffb78af"
+        "src-c1d440571364"
       ]
     },
     {
-      "id": "block-72255b3435ca",
+      "id": "block-3401c161bb96",
       "kind": "section",
       "title": "Components",
       "summary": "- HTTP API receives order submissions.",
@@ -79,11 +79,11 @@
         "Event publisher emits fulfillment events."
       ],
       "source_refs": [
-        "src-c5ed5ffb78af"
+        "src-c1d440571364"
       ]
     },
     {
-      "id": "block-e044584f0b6e",
+      "id": "block-43d29069eb76",
       "kind": "section",
       "title": "Risks",
       "summary": "- Inventory failures delay confirmation.",
@@ -94,7 +94,7 @@
         "Event publishing must not happen before order state is committed."
       ],
       "source_refs": [
-        "src-c5ed5ffb78af"
+        "src-c1d440571364"
       ]
     }
   ],
@@ -121,14 +121,14 @@
   ],
   "source_refs": [
     {
-      "id": "src-f8e0c45f0910",
-      "source_id": "src-f8e0c45f0910",
+      "id": "src-21dbbbe0666c",
+      "source_id": "src-21dbbbe0666c",
       "label": "notes.md",
       "locator": "examples/sample-bundle/input/notes.md"
     },
     {
-      "id": "src-c5ed5ffb78af",
-      "source_id": "src-f8e0c45f0910",
+      "id": "src-c1d440571364",
+      "source_id": "src-21dbbbe0666c",
       "label": "notes.md",
       "locator": "notes.md"
     }

@@ -180,6 +180,14 @@
           <code>handoff/content-pack-codex-prompt.md</code>.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          The sample bundle is now regenerated with <code>--pack auto</code> and commits
+          <code>content-pack.json</code> plus target briefs. Generated image files remain omitted,
+          and the sample manifest is pruned so it does not claim the omitted local preview PNG.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -327,6 +335,14 @@
           runs now say <code>deterministic</code> when the actual pack was deterministic.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          The public sample stays text-only rather than checking in PNG previews. This keeps the
+          repository small and avoids presenting the local fallback PNG as a finished design output,
+          while still showing the pack contract agents and renderers need.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -436,6 +452,33 @@
           failed on the subagent review gaps before the fix and passed afterward. Security review
           initially flagged the CLI planner read as an unscoped file read; switching it to
           <code>os.OpenInRoot</code> made <code>GOTOOLCHAIN=go1.26.3 script/security</code> pass.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          Added <code>TestVisualizePackAutoLocalE2E</code> as a CLI-level smoke test for
+          <code>go run ./cmd/visualize --pack auto --backend local --renderer html --offline</code>.
+          The targeted command <code>go test ./... -run TestVisualizePackAutoLocalE2E -count=1</code>
+          passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          Poppler is installed locally at <code>/opt/homebrew/bin/pdftotext</code> with version
+          <code>25.10.0</code>, but there is no checked-in <code>testdata/pdf/*.pdf</code> fixture.
+          The live PDF smoke was skipped for that reason; PDF subprocess behavior remains covered
+          by fake-<code>pdftotext</code> pipeline tests and text fixtures.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          Final release gates passed after the sample and e2e updates:
+          <code>script/lint</code>, <code>script/test</code>, <code>script/smoke</code>,
+          <code>GOTOOLCHAIN=go1.26.3 script/security</code>, <code>go test -cover ./...</code>,
+          and <code>git diff --check</code>.
         </p>
       </div>
     </section>

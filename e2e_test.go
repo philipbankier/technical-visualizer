@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -50,6 +51,41 @@ func TestEndToEndLocalVisualization(t *testing.T) {
 		if !strings.Contains(combinedEvidence, want) {
 			t.Fatalf("visual packet evidence missing %q in %q", want, combinedEvidence)
 		}
+	}
+}
+
+func TestVisualizePackAutoLocalE2E(t *testing.T) {
+	outputDir := t.TempDir()
+	cmd := exec.Command("go", "run", "./cmd/visualize", "--pack", "auto", "--backend", "local", "--renderer", "html", "--offline", "--out", outputDir, "testdata/research-knowledge-base.md")
+	data, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("visualize pack e2e failed: %v\n%s", err, data)
+	}
+	for _, rel := range []string{
+		"scaffold.html",
+		"visual-packet.json",
+		"manifest.json",
+		"final.png",
+		"content-pack.json",
+		"pack/linkedin-dense/brief.md",
+		"pack/social-teaser/brief.md",
+		"pack/blog-og/brief.md",
+	} {
+		info, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("Stat(%s) error = %v\n%s", rel, err, data)
+		}
+		if info.Size() == 0 {
+			t.Fatalf("%s is empty", rel)
+		}
+	}
+
+	manifestData, err := os.ReadFile(filepath.Join(outputDir, "manifest.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(manifest.json) error = %v", err)
+	}
+	if strings.Contains(string(manifestData), `"kind": "pack_image"`) {
+		t.Fatalf("local pack e2e should not declare generated pack images: %s", manifestData)
 	}
 }
 
