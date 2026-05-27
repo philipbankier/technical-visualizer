@@ -141,6 +141,16 @@
           cleanup from following symlinked target directories such as <code>pack/linkedin-dense</code>.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 8</div>
+        <p>
+          Codex content pack handoff remains a local prompt artifact under <code>handoff/</code>.
+          When <code>--pack auto --handoff codex</code> is selected, the pipeline writes
+          <code>content-pack.json</code> with target state <code>handoff_ready</code> and pack status
+          <code>handoff-ready</code>, then writes <code>handoff/content-pack-codex-prompt.md</code>
+          without generating target images.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -251,6 +261,14 @@
           After code-quality review, <code>visualize doctor</code> now reports only the first
           non-empty <code>pdftotext -v</code> line. This keeps doctor output readable without changing
           how Poppler availability is detected.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 8</div>
+        <p>
+          Quick mode keeps the single-image Codex handoff output visible, but when a content pack is
+          active the printed POSIX command points at the pack prompt. This favors the multi-target
+          workflow the user requested while preserving the older single-image prompt artifact.
         </p>
       </div>
     </section>

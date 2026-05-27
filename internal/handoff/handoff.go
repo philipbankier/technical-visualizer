@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/philipbankier/technical-visualizer/internal/model"
+	"github.com/philipbankier/technical-visualizer/internal/pack"
 )
 
 type Options struct {
@@ -64,6 +65,23 @@ func WriteCodexPackage(outputDir string, packet model.VisualPacket, opts Options
 		return Result{}, err
 	}
 
+	return result, nil
+}
+
+func WriteCodexContentPackPackage(outputDir string, packet model.VisualPacket, contentPack pack.ContentPack) (Result, error) {
+	result := Result{
+		PromptPath: filepath.ToSlash(filepath.Join("handoff", "content-pack-codex-prompt.md")),
+	}
+	target, err := preparePrivateTarget(outputDir, handoffFile{
+		path:    result.PromptPath,
+		content: contentPackPromptMarkdown(packet, contentPack),
+	})
+	if err != nil {
+		return Result{}, err
+	}
+	if err := writePreparedTargets([]privateTarget{target}); err != nil {
+		return Result{}, err
+	}
 	return result, nil
 }
 
@@ -329,6 +347,60 @@ func promptMarkdown(packet model.VisualPacket, opts Options) string {
 		"Source references:",
 		bullets(sourceRefTexts(packet.SourceRefs)),
 	}, "\n") + "\n"
+}
+
+func contentPackPromptMarkdown(packet model.VisualPacket, contentPack pack.ContentPack) string {
+	lines := []string{
+		"# Codex Content Pack Image Prompt",
+		"",
+		"This is an agent handoff workflow, not `visualize --backend codex`.",
+		"Use `content-pack.json`, `visual-packet.json`, `scaffold.html`, and `pack/<target>/brief.md` as source material.",
+		"Generate one image per target only when the user runs this prompt in interactive Codex.",
+		"Save each generated image to that target's `output_path` from `content-pack.json`.",
+		"",
+		"Treat private source-derived content as sensitive before using remote tools.",
+		"Preserve required text exactly. Do not invent facts, claims, APIs, numbers, papers, dates, or recommendations.",
+		"",
+		"## Source-Backed Packet Content",
+		"",
+		"Title: " + fallback(packet.Title),
+		"Thesis: " + fallback(packet.Thesis),
+		"",
+		"Required text:",
+		bullets(packet.RequiredText),
+		"",
+		"Claims:",
+		bullets(claimTexts(packet.RankedClaims)),
+		"",
+		"Facts:",
+		bullets(factTexts(packet.Facts)),
+		"",
+		"Metrics:",
+		bullets(metricTexts(packet.Metrics)),
+		"",
+		"Open questions:",
+		bullets(questionTexts(packet.OpenQuestions)),
+		"",
+		"## Targets",
+	}
+	for _, target := range contentPack.Targets {
+		lines = append(lines, "", contentPackTargetMarkdown(target))
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func contentPackTargetMarkdown(target pack.TargetSpec) string {
+	return strings.Join([]string{
+		"### " + fallback(target.ID),
+		"- Intent: " + fallback(target.Intent),
+		"- Brief: `" + inlineText(target.BriefPath) + "`",
+		"- Output path: `" + inlineText(target.OutputPath) + "`",
+		"- State: " + fallback(string(target.State)),
+		"- Required content:",
+		indentedBullets(target.RequiredContent),
+		"- Avoid:",
+		indentedBullets(target.Avoid),
+	}, "\n")
 }
 
 func briefMarkdown(packet model.VisualPacket) string {
@@ -719,6 +791,14 @@ func bullets(items []string) string {
 	}
 	if len(lines) == 0 {
 		return "- None provided."
+	}
+	return strings.Join(lines, "\n")
+}
+
+func indentedBullets(items []string) string {
+	lines := strings.Split(bullets(items), "\n")
+	for i := range lines {
+		lines[i] = "  " + lines[i]
 	}
 	return strings.Join(lines, "\n")
 }

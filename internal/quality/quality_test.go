@@ -340,6 +340,26 @@ func TestValidateBundleRejectsPackImageForPlannedTargets(t *testing.T) {
 	}
 }
 
+func TestValidateBundleReportsMissingDeclaredPackHandoffPrompt(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+		Kind:   "handoff_pack_prompt",
+		Path:   "handoff/content-pack-codex-prompt.md",
+		SHA256: "missing",
+	})
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "handoff_pack_prompt") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing pack handoff prompt issue", issues)
+	}
+}
+
 func TestValidateBundleAcceptsManifestAuditFields(t *testing.T) {
 	dir := t.TempDir()
 	packet := model.VisualPacket{

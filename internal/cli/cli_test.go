@@ -147,6 +147,43 @@ func TestRunPackAutoWritesSuccessOutput(t *testing.T) {
 	}
 }
 
+func TestRunPackCodexQuickPrintsPackHandoffCommand(t *testing.T) {
+	outputDir := filepath.Join(t.TempDir(), "visual output")
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{
+		"make",
+		"--backend", "local",
+		"--renderer", "html",
+		"--pack", "auto",
+		"--handoff", "codex",
+		"--quick",
+		"--out", outputDir,
+		filepath.Join("..", "..", "testdata", "research-knowledge-base.md"),
+	}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("Run(make --pack auto --handoff codex --quick) code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	promptPath := filepath.Join(outputDir, "handoff", "content-pack-codex-prompt.md")
+	got := stdout.String()
+	for _, want := range []string{
+		"Content pack Codex handoff: " + promptPath + "\n",
+		"POSIX shell: codex -C '" + outputDir + "' \"$(cat < '" + promptPath + "')\"\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "$(cat < '"+filepath.Join(outputDir, "handoff", "codex-prompt.md")+"')") {
+		t.Fatalf("stdout uses single-image prompt for pack quick mode:\n%s", got)
+	}
+	if _, err := os.Stat(promptPath); err != nil {
+		t.Fatalf("Stat(pack handoff prompt) error = %v", err)
+	}
+}
+
 func TestRunUnsupportedPackValueFailsBeforeWrites(t *testing.T) {
 	sourcePath := filepath.Join(t.TempDir(), "notes.md")
 	if err := os.WriteFile(sourcePath, []byte("# System\n"), 0o644); err != nil {

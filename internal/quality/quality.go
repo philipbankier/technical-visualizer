@@ -198,6 +198,7 @@ func validateManifest(dir string) []Issue {
 		issues = append(issues, validateOutputFile(dir, kind, expectedPath, file)...)
 	}
 	issues = append(issues, validateHandoffOutputFiles(dir, outputs)...)
+	issues = append(issues, validatePackHandoffOutputFiles(dir, outputs)...)
 	issues = append(issues, validatePackOutputFiles(dir, outputsByKind)...)
 
 	return issues
@@ -230,6 +231,14 @@ func validateHandoffOutputFiles(dir string, outputs map[string]outputFileSummary
 		issues = append(issues, validateOutputFile(dir, kind, expectedPath, file)...)
 	}
 	return issues
+}
+
+func validatePackHandoffOutputFiles(dir string, outputs map[string]outputFileSummary) []Issue {
+	file, ok := outputs["handoff_pack_prompt"]
+	if !ok {
+		return nil
+	}
+	return validateOutputFile(dir, "handoff_pack_prompt", "handoff/content-pack-codex-prompt.md", file)
 }
 
 func validatePackOutputFiles(dir string, outputs map[string][]outputFileSummary) []Issue {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/philipbankier/technical-visualizer/internal/backend"
 	"github.com/philipbankier/technical-visualizer/internal/model"
+	"github.com/philipbankier/technical-visualizer/internal/pack"
 )
 
 func TestRunOfflineAutoUsesLocalBackendEvenWithAPIKey(t *testing.T) {
@@ -329,6 +330,108 @@ func TestRunPackAutoWritesPackAndBriefs(t *testing.T) {
 		if !strings.Contains(brief, want) {
 			t.Fatalf("brief missing %q:\n%s", want, brief)
 		}
+	}
+}
+
+func TestRunPackCodexHandoffWritesPackPrompt(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "research-knowledge-base.md")},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Handoff:   "codex",
+		Pack:      "auto",
+		Quick:     true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	promptPath := filepath.Join(outputDir, "handoff", "content-pack-codex-prompt.md")
+	data, err := os.ReadFile(promptPath)
+	if err != nil {
+		t.Fatalf("ReadFile(pack prompt) error = %v", err)
+	}
+	for _, want := range []string{
+		"linkedin-dense",
+		"social-teaser",
+		"blog-og",
+		"content-pack.json",
+		"visual-packet.json",
+		"scaffold.html",
+		"pack/<target>/brief.md",
+		"not `visualize --backend codex`",
+	} {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("pack prompt missing %q:\n%s", want, data)
+		}
+	}
+	if !hasOutputKind(manifest.OutputFiles, "handoff_pack_prompt") {
+		t.Fatalf("manifest output files missing pack prompt: %#v", manifest.OutputFiles)
+	}
+
+	packData, err := os.ReadFile(filepath.Join(outputDir, "content-pack.json"))
+	if err != nil {
+		t.Fatalf("ReadFile(content-pack.json) error = %v", err)
+	}
+	var contentPack pack.ContentPack
+	if err := json.Unmarshal(packData, &contentPack); err != nil {
+		t.Fatalf("Unmarshal(content-pack.json) error = %v", err)
+	}
+	if contentPack.Status != pack.StatusHandoffReady {
+		t.Fatalf("content pack status = %q, want %q", contentPack.Status, pack.StatusHandoffReady)
+	}
+	for _, target := range contentPack.Targets {
+		if target.State != pack.StateHandoffReady {
+			t.Fatalf("target %q state = %q, want %q", target.ID, target.State, pack.StateHandoffReady)
+		}
+	}
+}
+
+func TestRunCodexHandoffWithoutPackCleansStalePackPrompt(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nThis run toggles pack handoff output."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Handoff:   "codex",
+		Pack:      "auto",
+	})
+	if err != nil {
+		t.Fatalf("initial Run() error = %v", err)
+	}
+	packPromptPath := filepath.Join(outputDir, "handoff", "content-pack-codex-prompt.md")
+	if _, err := os.Stat(packPromptPath); err != nil {
+		t.Fatalf("Stat(pack prompt) after initial run error = %v", err)
+	}
+
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Handoff:   "codex",
+		Pack:      "off",
+	})
+	if err != nil {
+		t.Fatalf("rerun without pack error = %v", err)
+	}
+	if _, statErr := os.Stat(packPromptPath); !os.IsNotExist(statErr) {
+		t.Fatalf("stale pack prompt exists after pack-disabled codex rerun, stat error = %v", statErr)
+	}
+	if !hasOutputKind(manifest.OutputFiles, "handoff_prompt") {
+		t.Fatalf("manifest missing single-image handoff prompt after rerun: %#v", manifest.OutputFiles)
+	}
+	if hasOutputKind(manifest.OutputFiles, "handoff_pack_prompt") {
+		t.Fatalf("manifest declares stale pack handoff prompt after rerun: %#v", manifest.OutputFiles)
 	}
 }
 

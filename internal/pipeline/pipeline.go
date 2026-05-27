@@ -28,6 +28,7 @@ const toolVersion = "0.1.0"
 var generatedBundleFiles = []string{"scaffold.html", "visual-packet.json", "final.png", "manifest.json"}
 var generatedHandoffFiles = []string{
 	"handoff/codex-prompt.md",
+	"handoff/content-pack-codex-prompt.md",
 	"handoff/image-brief.md",
 	"handoff/qa-checklist.md",
 	"handoff/style.md",
@@ -133,7 +134,7 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	}
 	packResult := packWriteResult{}
 	if packEnabled(opts) {
-		result, err := writeContentPackBundle(opts.OutputDir, visualPacket)
+		result, err := writeContentPackBundle(opts.OutputDir, visualPacket, opts.Handoff == "codex")
 		if err != nil {
 			return model.Manifest{}, err
 		}
@@ -161,6 +162,15 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 		}
 		handoffResult = result
 		imageResult.HandoffWritten = true
+		if packResult.Written {
+			result, err := handoff.WriteCodexContentPackPackage(opts.OutputDir, visualPacket, packResult.ContentPack)
+			if err != nil {
+				return model.Manifest{}, err
+			}
+			packResult.PackHandoffPromptPath = result.PromptPath
+		} else if err := removeGeneratedPackHandoffPrompt(opts.OutputDir); err != nil {
+			return model.Manifest{}, err
+		}
 	}
 	if !imageResult.HandoffWritten {
 		if err := removeGeneratedHandoffFiles(opts.OutputDir); err != nil {
@@ -617,15 +627,20 @@ func writeJSONFile(path string, value any) ([]byte, error) {
 }
 
 type packWriteResult struct {
-	Written         bool
-	ContentPackPath string
-	BriefPaths      []string
+	Written               bool
+	ContentPack           pack.ContentPack
+	ContentPackPath       string
+	BriefPaths            []string
+	PackHandoffPromptPath string
 }
 
-func writeContentPackBundle(outputDir string, visualPacket model.VisualPacket) (packWriteResult, error) {
+func writeContentPackBundle(outputDir string, visualPacket model.VisualPacket, handoffReady bool) (packWriteResult, error) {
 	contentPack, err := pack.Plan(visualPacket, pack.Options{Mode: "auto"})
 	if err != nil {
 		return packWriteResult{}, err
+	}
+	if handoffReady {
+		contentPack = contentPackHandoffReady(contentPack)
 	}
 
 	contentPackPath := "content-pack.json"
@@ -635,6 +650,7 @@ func writeContentPackBundle(outputDir string, visualPacket model.VisualPacket) (
 
 	result := packWriteResult{
 		Written:         true,
+		ContentPack:     contentPack,
 		ContentPackPath: contentPackPath,
 		BriefPaths:      make([]string, 0, len(contentPack.Targets)),
 	}
@@ -645,6 +661,14 @@ func writeContentPackBundle(outputDir string, visualPacket model.VisualPacket) (
 		result.BriefPaths = append(result.BriefPaths, target.BriefPath)
 	}
 	return result, nil
+}
+
+func contentPackHandoffReady(contentPack pack.ContentPack) pack.ContentPack {
+	for i := range contentPack.Targets {
+		contentPack.Targets[i].State = pack.StateHandoffReady
+	}
+	contentPack.Status = pack.DeriveStatus(contentPack.Targets)
+	return contentPack
 }
 
 func writePackBriefFile(outputDir string, visualPacket model.VisualPacket, contentPack pack.ContentPack, target pack.TargetSpec) error {
@@ -801,6 +825,20 @@ func removeGeneratedHandoffFiles(outputDir string) error {
 		}
 	}
 	return removeEmptyGeneratedHandoffDir(outputDir)
+}
+
+func removeGeneratedPackHandoffPrompt(outputDir string) error {
+	if err := ensureGeneratedHandoffParentSafe(outputDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	promptPath := filepath.Join(outputDir, "handoff", "content-pack-codex-prompt.md")
+	if err := os.Remove(promptPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove handoff/content-pack-codex-prompt.md: %w", err)
+	}
+	return nil
 }
 
 func removeGeneratedPackFiles(outputDir string) error {
@@ -1061,6 +1099,9 @@ func packOutputFiles(outputDir string, result packWriteResult) []model.OutputFil
 	}
 	for _, briefPath := range result.BriefPaths {
 		files = append(files, outputFile("pack_brief", briefPath, filepath.Join(outputDir, filepath.FromSlash(briefPath))))
+	}
+	if result.PackHandoffPromptPath != "" {
+		files = append(files, outputFile("handoff_pack_prompt", result.PackHandoffPromptPath, filepath.Join(outputDir, filepath.FromSlash(result.PackHandoffPromptPath))))
 	}
 	return files
 }

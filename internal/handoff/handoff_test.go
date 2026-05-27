@@ -7,7 +7,95 @@ import (
 	"testing"
 
 	"github.com/philipbankier/technical-visualizer/internal/model"
+	"github.com/philipbankier/technical-visualizer/internal/pack"
 )
+
+func TestWriteCodexContentPackPackageWritesPackPrompt(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		Title:        "AI Agent Skills",
+		Thesis:       "Skills improve repeatability.",
+		RequiredText: []string{"AI Agent Skills", "SkillOpt accuracy lift"},
+		RankedClaims: []model.Claim{{
+			Text:       "SkillOpt reports +23.5 accuracy.",
+			SourceRefs: []string{"src-skillopt"},
+		}},
+		OpenQuestions: []model.OpenQuestion{{
+			Text: "How should agents choose between overlapping skills?",
+		}},
+	}
+	contentPack := pack.ContentPack{
+		SchemaVersion: "content-pack/v1",
+		SourcePacket:  "visual-packet.json",
+		Title:         "AI Agent Skills",
+		Status:        pack.StatusHandoffReady,
+		Targets: []pack.TargetSpec{
+			{
+				ID:              "linkedin-dense",
+				Intent:          "technical deep-dive infographic",
+				BriefPath:       "pack/linkedin-dense/brief.md",
+				OutputPath:      "pack/linkedin-dense/final.png",
+				State:           pack.StateHandoffReady,
+				RequiredContent: []string{"AI Agent Skills"},
+			},
+			{
+				ID:         "social-teaser",
+				Intent:     "pretty lower-density social preview",
+				BriefPath:  "pack/social-teaser/brief.md",
+				OutputPath: "pack/social-teaser/final.png",
+				State:      pack.StateHandoffReady,
+			},
+			{
+				ID:         "blog-og",
+				Intent:     "article and README open graph hero",
+				BriefPath:  "pack/blog-og/brief.md",
+				OutputPath: "pack/blog-og/final.png",
+				State:      pack.StateHandoffReady,
+			},
+		},
+	}
+
+	result, err := WriteCodexContentPackPackage(dir, packet, contentPack)
+	if err != nil {
+		t.Fatalf("WriteCodexContentPackPackage() error = %v", err)
+	}
+	if result.PromptPath != "handoff/content-pack-codex-prompt.md" {
+		t.Fatalf("PromptPath = %q, want handoff/content-pack-codex-prompt.md", result.PromptPath)
+	}
+	info, err := os.Stat(filepath.Join(dir, result.PromptPath))
+	if err != nil {
+		t.Fatalf("Stat(pack prompt) error = %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("pack prompt permissions = %o, want 0600", info.Mode().Perm())
+	}
+
+	prompt := readFile(t, filepath.Join(dir, result.PromptPath))
+	for _, want := range []string{
+		"content-pack.json",
+		"visual-packet.json",
+		"scaffold.html",
+		"pack/<target>/brief.md",
+		"pack/linkedin-dense/brief.md",
+		"pack/social-teaser/brief.md",
+		"pack/blog-og/brief.md",
+		"Generate one image per target only when the user runs this prompt in interactive Codex.",
+		"pack/linkedin-dense/final.png",
+		"pack/social-teaser/final.png",
+		"pack/blog-og/final.png",
+		"Preserve required text exactly.",
+		"Do not invent facts, claims, APIs, numbers, papers, dates, or recommendations.",
+		"Treat private source-derived content as sensitive before using remote tools.",
+		"not `visualize --backend codex`",
+		"AI Agent Skills",
+		"SkillOpt reports +23.5 accuracy.",
+		"How should agents choose between overlapping skills?",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("pack prompt missing %q in:\n%s", want, prompt)
+		}
+	}
+}
 
 func TestWriteCodexPackageWritesPromptBriefChecklistAndStyle(t *testing.T) {
 	dir := t.TempDir()

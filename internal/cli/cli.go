@@ -61,15 +61,22 @@ func runPipeline(args []string, stdout io.Writer, stderr io.Writer) int {
 	fmt.Fprintf(stdout, "Wrote visualization bundle to %s\n", opts.OutputDir)
 	fmt.Fprintf(stdout, "Backend: %s\n", manifest.Backend.Name)
 	handoffMode := strings.ToLower(strings.TrimSpace(opts.Handoff))
+	packMode := strings.ToLower(strings.TrimSpace(opts.Pack))
 	if handoffMode == "codex" {
 		fmt.Fprintf(stdout, "Codex handoff: %s\n", filepath.Join(opts.OutputDir, "handoff", "codex-prompt.md"))
 	}
-	if strings.EqualFold(strings.TrimSpace(opts.Pack), "auto") {
+	if packMode == "auto" {
 		fmt.Fprintf(stdout, "Content pack: %s\n", filepath.Join(opts.OutputDir, "content-pack.json"))
 		fmt.Fprintf(stdout, "Pack briefs: %s\n", filepath.Join(opts.OutputDir, "pack"))
+		if handoffMode == "codex" {
+			fmt.Fprintf(stdout, "Content pack Codex handoff: %s\n", filepath.Join(opts.OutputDir, "handoff", "content-pack-codex-prompt.md"))
+		}
 	}
 	if handoffMode == "codex" && opts.Quick {
 		promptPath := filepath.Join(opts.OutputDir, "handoff", "codex-prompt.md")
+		if packMode == "auto" {
+			promptPath = filepath.Join(opts.OutputDir, "handoff", "content-pack-codex-prompt.md")
+		}
 		fmt.Fprintf(stdout, "POSIX shell: codex -C %s \"$(cat < %s)\"\n", shellQuote(opts.OutputDir), shellQuote(promptPath))
 	}
 	return 0
