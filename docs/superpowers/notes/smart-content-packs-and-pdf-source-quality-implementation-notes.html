@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smart Content Packs And PDF Source Quality Implementation Notes</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+      body {
+        max-width: 960px;
+        margin: 40px auto;
+        padding: 0 24px 48px;
+      }
+      h1,
+      h2 {
+        line-height: 1.15;
+      }
+      section {
+        border-top: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        margin-top: 28px;
+        padding-top: 18px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.95em;
+      }
+      .entry {
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+        margin: 14px 0;
+        padding: 12px 14px;
+      }
+      .meta {
+        color: color-mix(in srgb, CanvasText 62%, transparent);
+        font-size: 0.9em;
+        margin-bottom: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Smart Content Packs And PDF Source Quality Implementation Notes</h1>
+    <p>
+      Running notes for PDF text extraction, Markdown-ish PDF normalization, content packs,
+      Codex pack handoff, OpenAI pack generation, and later LLM pack planning. Future worker
+      tasks should append entries when behavior diverges from or interprets the approved spec.
+    </p>
+
+    <section>
+      <h2>Design Decisions</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          The execution plan starts with PDF source quality before content packs. Content packs
+          become much more useful once papers and PDF-only sources can produce source-backed
+          packet content without manual rereading.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          PDF work stays in <code>internal/source</code> with a new <code>pdf.go</code> file. The plan
+          avoids a separate <code>internal/source/pdf</code> package until there is real pressure
+          from multiple extractor engines or broader reuse.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          Pack planning gets its own narrow <code>internal/pack</code> package and a separate
+          <code>content-pack.json</code> artifact. <code>visual-packet.json</code> remains the source-backed
+          story spine instead of becoming a multi-output container.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Deviations</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          No approved deviation yet. The plan keeps <code>--backend codex</code> rejected and treats
+          Codex image generation as a manual handoff workflow.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Tradeoffs</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          Poppler <code>pdftotext</code> is the stable first extractor. This gives the smoothest
+          local experience when installed and avoids shipping native libraries, at the cost of
+          requiring clear install guidance when Poppler is missing.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          The first pack targets are fixed and deterministic. This gives repeatable tests and a
+          dependable CLI contract before adding an LLM planner that can revise the same schema.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 subagent audit</div>
+        <p>
+          The plan intentionally replaces the existing PDF test that accepts warning-only behavior.
+          Warning-only PDF support is now treated as the root product gap, not as an acceptable
+          fallback for PDF-only sources.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 subagent audit</div>
+        <p>
+          Content pack image paths stay out of <code>manifest.output_files</code> until files exist.
+          Planned image paths live in <code>content-pack.json</code> so the manifest does not claim
+          outputs that were not generated.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Open Questions</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          Confirm after release slice 2 whether local/offline pack previews should remain briefs
+          only, add a contact sheet, or render HTML screenshots. The approved spec allows previews
+          only if they are labeled clearly as previews.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 subagent audit</div>
+        <p>
+          Overall pack status uses the approved hyphenated wire value <code>handoff-ready</code>,
+          while target state uses <code>handoff_ready</code>. If this feels awkward in practice,
+          change it through a schema migration instead of silently changing the approved contract.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Validation Evidence</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          The execution plan requires strict red, green, refactor work per task, a worker subagent
+          for each implementation slice, a spec-compliance review, a code-quality review, and a
+          commit after each reviewed slice.
+        </p>
+      </div>
+    </section>
+  </body>
+</html>

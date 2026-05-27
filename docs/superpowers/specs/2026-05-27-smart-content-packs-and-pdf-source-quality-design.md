@@ -2,7 +2,7 @@
 
 Date: 2026-05-27
 
-Status: draft for user review.
+Status: approved for implementation planning.
 
 Branch: `codex/content-rich-codex-handoff`
 
