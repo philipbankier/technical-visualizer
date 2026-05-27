@@ -83,6 +83,22 @@
           Missing extraction returns no placeholder item and gives Poppler install guidance.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          The default PDF extractor now uses Poppler <code>pdftotext</code> through a package-local
+          command runner seam. Tests fake the runner, so Poppler is not required for CI coverage.
+          The production command uses <code>pdftotext -layout -enc UTF-8 &lt;path&gt; -</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          PDF normalization converts raw extractor text into Markdown-ish evidence by preserving
+          page boundaries as <code>&lt;!-- page N --&gt;</code>, dehyphenating alphabetic line breaks,
+          promoting common paper headings, and keeping table-like spacing intact.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -137,6 +153,14 @@
           than the temporary path.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          PDF evidence now requires at least <code>200</code> Unicode letters after extraction and
+          normalization. This filters scanned or very low-evidence PDFs into warning-only results
+          instead of creating thin evidence items that look useful downstream.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -167,6 +191,22 @@
           The execution plan requires strict red, green, refactor work per task, a worker subagent
           for each implementation slice, a spec-compliance review, a code-quality review, and a
           commit after each reviewed slice.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          Red command: <code>go test ./internal/source -run 'NormalizePDFText|TooLittleText' -count=1</code>
+          first failed because <code>normalizePDFTextToMarkdown</code> and <code>popplerExtractor</code>
+          were undefined. After implementation, <code>go test ./internal/source -run 'PDF|Normalize|Poppler' -count=1</code>
+          and <code>go test ./internal/source -count=1</code> passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          Optional Poppler smoke was available locally: <code>/opt/homebrew/bin/pdftotext</code>,
+          <code>pdftotext version 25.10.0</code>.
         </p>
       </div>
     </section>

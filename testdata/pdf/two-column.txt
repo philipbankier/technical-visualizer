@@ -1,0 +1,9 @@
+Abstract
+Left column text explains the source gatherer and       right column text explains packet quality.
+The first paragraph remains readable after layout       because pdftotext layout mode preserves order well enough.
+
+1 Introduction
+Column text should still promote headings and keep technical claims visible for downstream extraction.
+
+2 Method
+The evidence bundle keeps page-aware references and readable claims for the visual packet.

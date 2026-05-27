@@ -71,7 +71,7 @@ func gatherRemotePDF(ctx context.Context, spec model.SourceSpec, opts GatherOpti
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return gatherResult{Warnings: []string{sourceWarning(spec, "remote PDF temp file write failed for %q: %v", rawURL, err)}}
 	}
 	if err := tmp.Close(); err != nil {

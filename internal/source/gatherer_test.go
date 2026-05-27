@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -274,6 +275,102 @@ func TestGatherRemoteMarkdownSource(t *testing.T) {
 	}
 }
 
+func TestNormalizePDFTextPromotesPaperHeadings(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "pdf", "born-digital.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	got := normalizePDFTextToMarkdown(string(raw))
+
+	for _, want := range []string{"# Abstract", "# 1 Introduction", "# 2.3 Method", "# References", "<!-- page 2 -->", "# Appendix"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("normalized text missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestNormalizePDFTextDehyphenatesLineBreaks(t *testing.T) {
+	got := normalizePDFTextToMarkdown("The procedur-\nal method remains explain-\nable.\n\nTable 1  Value\nAlpha    10")
+
+	for _, want := range []string{"procedural", "explainable", "Table 1  Value\nAlpha    10"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("normalized text missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestPDFExtractionTooLittleTextReturnsWarningOnly(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "scanned.pdf")
+	if err := os.WriteFile(path, []byte("%PDF-1.4\nfixture\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join("..", "..", "testdata", "pdf", "scanned-empty.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	restore := usePDFExtractorForTest(t, fakePDFExtractor{
+		result: pdfExtraction{
+			Engine:         "fake-pdftotext",
+			Version:        "fake 1.0",
+			PageCount:      1,
+			ExtractedPages: 1,
+			Text:           normalizePDFTextToMarkdown(string(raw)),
+		},
+	})
+	defer restore()
+
+	spec := model.SourceSpec{ID: "src-pdf", Kind: model.SourcePDF, Input: path, Resolved: path}
+	bundle, err := GatherAll(context.Background(), []model.SourceSpec{spec}, DefaultGatherOptions())
+	if err != nil {
+		t.Fatalf("GatherAll() error = %v", err)
+	}
+	if item := findItemBySource(bundle, "src-pdf"); item != nil {
+		t.Fatalf("unexpected PDF evidence item: %#v", item)
+	}
+	if !containsWarning(bundle.Warnings, "too little readable text") {
+		t.Fatalf("warnings = %#v, want too little readable text warning", bundle.Warnings)
+	}
+}
+
+func TestPopplerExtractorUsesPDFToTextLayoutOutput(t *testing.T) {
+	runner := &fakeCommandRunner{
+		path: "pdftotext",
+		outputs: map[string][]byte{
+			"pdftotext\x00-v": []byte("pdftotext version 23.11.0\n"),
+			"pdftotext\x00-layout\x00-enc\x00UTF-8\x00paper.pdf\x00-": []byte("Abstract\n\nPoppler produces readable alphabetic evidence for a born digital PDF with enough letters to pass the useful threshold. The extraction preserves source material that describes architecture, methods, evaluation, reliability, limitations, and references for downstream technical visuals.\fReferences\n\nA paper reference with enough alphabetic text to count as useful readable content."),
+		},
+	}
+	extractor := popplerExtractor{runner: runner}
+
+	got, err := extractor.ExtractPDFText(context.Background(), "paper.pdf", DefaultGatherOptions())
+	if err != nil {
+		t.Fatalf("ExtractPDFText() error = %v", err)
+	}
+	if got.Engine != "pdftotext" {
+		t.Fatalf("Engine = %q, want pdftotext", got.Engine)
+	}
+	if got.Version != "pdftotext version 23.11.0" {
+		t.Fatalf("Version = %q", got.Version)
+	}
+	if got.ExtractedPages != 2 {
+		t.Fatalf("ExtractedPages = %d, want 2", got.ExtractedPages)
+	}
+	if !strings.Contains(got.Text, "# Abstract") || !strings.Contains(got.Text, "<!-- page 2 -->") {
+		t.Fatalf("Text = %q", got.Text)
+	}
+}
+
+func TestPopplerExtractorUnavailableWhenPDFToTextMissing(t *testing.T) {
+	extractor := popplerExtractor{runner: &fakeCommandRunner{lookPathErr: errors.New("not found")}}
+
+	_, err := extractor.ExtractPDFText(context.Background(), "paper.pdf", DefaultGatherOptions())
+	if !errors.Is(err, errPDFExtractorUnavailable) {
+		t.Fatalf("ExtractPDFText() error = %v, want errPDFExtractorUnavailable", err)
+	}
+}
+
 func TestGatherLocalPDFUsesExtractorEvidence(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "paper.pdf")
@@ -286,7 +383,7 @@ func TestGatherLocalPDFUsesExtractorEvidence(t *testing.T) {
 			Version:        "fake 1.0",
 			PageCount:      2,
 			ExtractedPages: 2,
-			Text:           "# Abstract\n\nSkillOpt reports +23.5 accuracy.\n\n# 1 Introduction\n\n- 2025-01: SkillOpt reports results.",
+			Text:           usefulPDFText("# Abstract\n\nSkillOpt reports +23.5 accuracy.\n\n# 1 Introduction\n\n- 2025-01: SkillOpt reports results."),
 			PageRefs: []pdfPageRef{
 				{Page: 1, Ref: "paper.pdf#page=1"},
 				{Page: 2, Ref: "paper.pdf#page=2"},
@@ -370,7 +467,7 @@ func TestGatherLocalPDFRedactsExtractedSecrets(t *testing.T) {
 			Version:        "fake 1.0",
 			PageCount:      1,
 			ExtractedPages: 1,
-			Text:           "# Secrets\n\napi_key = extracted-secret-value-1234567890",
+			Text:           usefulPDFText("# Secrets\n\napi_key = extracted-secret-value-1234567890"),
 		},
 	})
 	defer restore()
@@ -404,7 +501,7 @@ func TestGatherRemotePDFUsesExtractorEvidence(t *testing.T) {
 			Version:        "fake 1.0",
 			PageCount:      1,
 			ExtractedPages: 1,
-			Text:           "# Abstract\n\nRemote PDF reports source-backed claims.",
+			Text:           usefulPDFText("# Abstract\n\nRemote PDF reports source-backed claims."),
 			PageRefs:       []pdfPageRef{{Page: 1, Ref: "paper.pdf#page=1"}},
 		},
 	})
@@ -617,6 +714,10 @@ func containsWarning(warnings []string, needle string) bool {
 	return false
 }
 
+func usefulPDFText(prefix string) string {
+	return prefix + "\n\n" + strings.Repeat("This extracted PDF paragraph contains readable source backed evidence for technical visualization tests. ", 4)
+}
+
 func usePDFExtractorForTest(t *testing.T, extractor fakePDFExtractor) func() {
 	t.Helper()
 	previous := defaultPDFExtractor
@@ -636,4 +737,32 @@ func (f fakePDFExtractor) ExtractPDFText(context.Context, string, GatherOptions)
 		return pdfExtraction{}, f.err
 	}
 	return f.result, nil
+}
+
+type fakeCommandRunner struct {
+	path        string
+	lookPathErr error
+	outputs     map[string][]byte
+	runErr      error
+}
+
+func (f *fakeCommandRunner) LookPath(file string) (string, error) {
+	if f.lookPathErr != nil {
+		return "", f.lookPathErr
+	}
+	if f.path != "" {
+		return f.path, nil
+	}
+	return file, nil
+}
+
+func (f *fakeCommandRunner) Run(ctx context.Context, name string, args ...string) ([]byte, []byte, error) {
+	if f.runErr != nil {
+		return nil, nil, f.runErr
+	}
+	key := name
+	for _, arg := range args {
+		key += "\x00" + arg
+	}
+	return f.outputs[key], nil, nil
 }
