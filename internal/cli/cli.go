@@ -64,6 +64,10 @@ func runPipeline(args []string, stdout io.Writer, stderr io.Writer) int {
 	if handoffMode == "codex" {
 		fmt.Fprintf(stdout, "Codex handoff: %s\n", filepath.Join(opts.OutputDir, "handoff", "codex-prompt.md"))
 	}
+	if strings.EqualFold(strings.TrimSpace(opts.Pack), "auto") {
+		fmt.Fprintf(stdout, "Content pack: %s\n", filepath.Join(opts.OutputDir, "content-pack.json"))
+		fmt.Fprintf(stdout, "Pack briefs: %s\n", filepath.Join(opts.OutputDir, "pack"))
+	}
 	if handoffMode == "codex" && opts.Quick {
 		promptPath := filepath.Join(opts.OutputDir, "handoff", "codex-prompt.md")
 		fmt.Fprintf(stdout, "POSIX shell: codex -C %s \"$(cat < %s)\"\n", shellQuote(opts.OutputDir), shellQuote(promptPath))
@@ -84,6 +88,7 @@ func parsePipelineArgs(args []string, stderr io.Writer) (pipeline.Options, error
 	fs.BoolVar(&opts.Offline, "offline", false, "skip remote source fetching")
 	fs.StringVar(&opts.Handoff, "handoff", "", "handoff package: codex")
 	fs.BoolVar(&opts.Quick, "quick", false, "print a ready manual command for the selected handoff")
+	fs.StringVar(&opts.Pack, "pack", "off", "content pack mode: off or auto")
 	fs.Usage = func() { printUsage(stderr) }
 	if err := fs.Parse(args); err != nil {
 		return pipeline.Options{}, err
@@ -115,6 +120,7 @@ Common flags:
   --offline       Skip remote source fetching.
   --handoff       Optional handoff package, currently codex.
   --quick         Print a ready manual command for the selected handoff.
+  --pack          Content pack mode: off or auto. Defaults to off.
 
 Unsupported in v0.1:
   gather, packet, render, codex image generation

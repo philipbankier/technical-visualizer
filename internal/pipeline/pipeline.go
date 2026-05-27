@@ -16,6 +16,7 @@ import (
 	"github.com/philipbankier/technical-visualizer/internal/backend"
 	"github.com/philipbankier/technical-visualizer/internal/handoff"
 	"github.com/philipbankier/technical-visualizer/internal/model"
+	"github.com/philipbankier/technical-visualizer/internal/pack"
 	"github.com/philipbankier/technical-visualizer/internal/packet"
 	"github.com/philipbankier/technical-visualizer/internal/quality"
 	"github.com/philipbankier/technical-visualizer/internal/render"
@@ -30,6 +31,12 @@ var generatedHandoffFiles = []string{
 	"handoff/image-brief.md",
 	"handoff/qa-checklist.md",
 	"handoff/style.md",
+}
+var generatedPackFiles = []string{
+	"content-pack.json",
+	"pack/linkedin-dense/brief.md",
+	"pack/social-teaser/brief.md",
+	"pack/blog-og/brief.md",
 }
 
 type openAIImageBackend interface {
@@ -52,6 +59,7 @@ type Options struct {
 	Offline   bool
 	Handoff   string
 	Quick     bool
+	Pack      string
 }
 
 type imageGenerationResult struct {
@@ -123,6 +131,18 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	if err != nil {
 		return model.Manifest{}, err
 	}
+	packResult := packWriteResult{}
+	if packEnabled(opts) {
+		result, err := writeContentPackBundle(opts.OutputDir, visualPacket)
+		if err != nil {
+			return model.Manifest{}, err
+		}
+		packResult = result
+	} else {
+		if err := removeGeneratedPackFiles(opts.OutputDir); err != nil {
+			return model.Manifest{}, err
+		}
+	}
 	// #nosec G304 -- this reads the scaffold file the pipeline just wrote in the output bundle.
 	scaffoldHTML, err := os.ReadFile(scaffoldPath)
 	if err != nil {
@@ -168,6 +188,9 @@ func Run(ctx context.Context, opts Options) (model.Manifest, error) {
 	}
 	if imageResult.HandoffWritten {
 		manifest.OutputFiles = append(manifest.OutputFiles, handoffOutputFiles(opts.OutputDir, handoffResult)...)
+	}
+	if packResult.Written {
+		manifest.OutputFiles = append(manifest.OutputFiles, packOutputFiles(opts.OutputDir, packResult)...)
 	}
 	if _, err := writeManifestFile(manifestPath, manifest); err != nil {
 		return model.Manifest{}, err
@@ -293,6 +316,9 @@ func nextSteps(opts Options, imageResult imageGenerationResult) []string {
 	if opts.Offline {
 		steps = append(steps, "offline mode was enabled; no remote source fetching or remote image generation was performed.")
 	}
+	if packEnabled(opts) {
+		steps = append(steps, "Open content-pack.json and pack/ target brief directories before producing target-specific images.")
+	}
 	return steps
 }
 
@@ -315,6 +341,7 @@ func normalizeOptions(opts Options) Options {
 	opts.Backend = strings.ToLower(strings.TrimSpace(opts.Backend))
 	opts.Renderer = strings.ToLower(strings.TrimSpace(opts.Renderer))
 	opts.Handoff = strings.ToLower(strings.TrimSpace(opts.Handoff))
+	opts.Pack = strings.ToLower(strings.TrimSpace(opts.Pack))
 	return opts
 }
 
@@ -340,6 +367,12 @@ func validateOptions(opts Options) error {
 		return fmt.Errorf("unsupported handoff %q", opts.Handoff)
 	}
 
+	switch opts.Pack {
+	case "", "off", "auto":
+	default:
+		return fmt.Errorf("unsupported pack %q", opts.Pack)
+	}
+
 	if opts.Quick && opts.Handoff != "codex" {
 		return errors.New("--quick requires --handoff codex")
 	}
@@ -349,6 +382,10 @@ func validateOptions(opts Options) error {
 	}
 
 	return nil
+}
+
+func packEnabled(opts Options) bool {
+	return opts.Pack == "auto"
 }
 
 func generateImage(ctx context.Context, opts Options, visualPacket model.VisualPacket, packetJSON string, scaffoldHTML string, outputPath string) (imageGenerationResult, error) {
@@ -579,13 +616,176 @@ func writeJSONFile(path string, value any) ([]byte, error) {
 	return data, os.WriteFile(path, data, 0o600)
 }
 
+type packWriteResult struct {
+	Written         bool
+	ContentPackPath string
+	BriefPaths      []string
+}
+
+func writeContentPackBundle(outputDir string, visualPacket model.VisualPacket) (packWriteResult, error) {
+	contentPack, err := pack.Plan(visualPacket, pack.Options{Mode: "auto"})
+	if err != nil {
+		return packWriteResult{}, err
+	}
+
+	contentPackPath := "content-pack.json"
+	if _, err := writeJSONFile(filepath.Join(outputDir, contentPackPath), contentPack); err != nil {
+		return packWriteResult{}, err
+	}
+
+	result := packWriteResult{
+		Written:         true,
+		ContentPackPath: contentPackPath,
+		BriefPaths:      make([]string, 0, len(contentPack.Targets)),
+	}
+	for _, target := range contentPack.Targets {
+		if err := writePackBriefFile(outputDir, visualPacket, contentPack, target); err != nil {
+			return packWriteResult{}, err
+		}
+		result.BriefPaths = append(result.BriefPaths, target.BriefPath)
+	}
+	return result, nil
+}
+
+func writePackBriefFile(outputDir string, visualPacket model.VisualPacket, contentPack pack.ContentPack, target pack.TargetSpec) error {
+	if !safeBundleRelPath(target.BriefPath) {
+		return fmt.Errorf("unsafe pack brief path %q", target.BriefPath)
+	}
+	path := filepath.Join(outputDir, filepath.FromSlash(target.BriefPath))
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	if err := ensureGeneratedPackDirsSafe(outputDir); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(packBriefMarkdown(visualPacket, contentPack, target)), 0o600)
+}
+
+func packBriefMarkdown(visualPacket model.VisualPacket, contentPack pack.ContentPack, target pack.TargetSpec) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "# %s\n\n", visualPacket.Title)
+	fmt.Fprintf(&b, "- Target intent: %s\n", target.Intent)
+	fmt.Fprintf(&b, "- Density: %s\n", target.Density)
+	fmt.Fprintf(&b, "- Aspect ratio: %s\n", target.AspectRatio)
+	fmt.Fprintf(&b, "- Planned output path: %s\n", target.OutputPath)
+	fmt.Fprintf(&b, "- Pack status: %s\n\n", contentPack.Status)
+
+	b.WriteString("## Required content\n\n")
+	writeMarkdownList(&b, target.RequiredContent)
+	b.WriteString("\n## Avoid\n\n")
+	writeMarkdownList(&b, target.Avoid)
+	b.WriteString("\n## Source references\n\n")
+	writeMarkdownList(&b, visualPacketSourceReferences(visualPacket))
+	b.WriteString("\nNote: planned local output is not a final polished image. Treat this brief as source-backed planning input for a later image generation or handoff step.\n")
+	return b.String()
+}
+
+func writeMarkdownList(b *strings.Builder, values []string) {
+	if len(values) == 0 {
+		b.WriteString("- None declared.\n")
+		return
+	}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		fmt.Fprintf(b, "- %s\n", value)
+	}
+}
+
+func visualPacketSourceReferences(packet model.VisualPacket) []string {
+	var refs []string
+	seen := map[string]bool{}
+	add := func(values ...string) {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value == "" || seen[value] {
+				continue
+			}
+			seen[value] = true
+			refs = append(refs, value)
+		}
+	}
+	for _, ref := range packet.SourceRefs {
+		label := strings.TrimSpace(ref.Label)
+		locator := strings.TrimSpace(ref.Locator)
+		switch {
+		case label != "" && locator != "":
+			add(label + " (" + locator + ")")
+		case label != "":
+			add(label)
+		case locator != "":
+			add(locator)
+		case strings.TrimSpace(ref.ID) != "":
+			add(ref.ID)
+		}
+	}
+	for _, claim := range packet.RankedClaims {
+		add(claim.SourceRefs...)
+	}
+	for _, fact := range packet.Facts {
+		add(fact.SourceRefs...)
+	}
+	for _, block := range packet.ContentBlocks {
+		add(block.SourceRefs...)
+	}
+	for _, metric := range packet.Metrics {
+		add(metric.SourceRefs...)
+	}
+	for _, event := range packet.Timeline {
+		add(event.SourceRefs...)
+	}
+	for _, entity := range packet.Entities {
+		add(entity.SourceRefs...)
+	}
+	for _, table := range packet.Tables {
+		add(table.SourceRefs...)
+	}
+	for _, diagram := range packet.Diagrams {
+		add(diagram.SourceRefs...)
+	}
+	for _, question := range packet.OpenQuestions {
+		add(question.SourceRefs...)
+	}
+	for _, risk := range packet.Risks {
+		add(risk.SourceRefs...)
+	}
+	for _, tradeoff := range packet.Tradeoffs {
+		add(tradeoff.SourceRefs...)
+	}
+	for _, unknown := range packet.Unknowns {
+		add(unknown.SourceRefs...)
+	}
+	if len(refs) == 0 {
+		return []string{"visual-packet.json"}
+	}
+	return refs
+}
+
+func safeBundleRelPath(relPath string) bool {
+	if strings.Contains(relPath, "\\") {
+		return false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(relPath), "/") {
+		if part == ".." {
+			return false
+		}
+	}
+	cleanPath := filepath.ToSlash(filepath.Clean(relPath))
+	return cleanPath != "." && !filepath.IsAbs(cleanPath) && cleanPath != ".." && !strings.HasPrefix(cleanPath, "../")
+}
+
 func removeGeneratedBundleFiles(outputDir string) error {
 	for _, name := range generatedBundleFiles {
 		if err := os.Remove(filepath.Join(outputDir, name)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("remove %s: %w", name, err)
 		}
 	}
-	return removeGeneratedHandoffFiles(outputDir)
+	if err := removeGeneratedHandoffFiles(outputDir); err != nil {
+		return err
+	}
+	return removeGeneratedPackFiles(outputDir)
 }
 
 func removeGeneratedHandoffFiles(outputDir string) error {
@@ -603,6 +803,27 @@ func removeGeneratedHandoffFiles(outputDir string) error {
 	return removeEmptyGeneratedHandoffDir(outputDir)
 }
 
+func removeGeneratedPackFiles(outputDir string) error {
+	if err := os.Remove(filepath.Join(outputDir, "content-pack.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove content-pack.json: %w", err)
+	}
+	if err := ensureGeneratedPackDirsSafe(outputDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, name := range generatedPackFiles {
+		if name == "content-pack.json" {
+			continue
+		}
+		if err := os.Remove(filepath.Join(outputDir, filepath.FromSlash(name))); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("remove %s: %w", name, err)
+		}
+	}
+	return removeEmptyGeneratedPackDirs(outputDir)
+}
+
 func ensureGeneratedHandoffParentSafe(outputDir string) error {
 	handoffDir := filepath.Join(outputDir, "handoff")
 	info, err := os.Lstat(handoffDir)
@@ -618,13 +839,62 @@ func ensureGeneratedHandoffParentSafe(outputDir string) error {
 	return nil
 }
 
+func ensureGeneratedPackParentSafe(outputDir string) error {
+	return ensureGeneratedDirSafe(outputDir, "pack")
+}
+
+func ensureGeneratedPackDirsSafe(outputDir string) error {
+	for _, relDir := range generatedPackDirs() {
+		if err := ensureGeneratedDirSafe(outputDir, relDir); err != nil {
+			if errors.Is(err, os.ErrNotExist) && relDir != "pack" {
+				continue
+			}
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureGeneratedDirSafe(outputDir string, relDir string) error {
+	dir := filepath.Join(outputDir, filepath.FromSlash(relDir))
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("generated directory is a symlink: %s", dir)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("generated path is not a directory: %s", dir)
+	}
+	return nil
+}
+
+func generatedPackDirs() []string {
+	return []string{"pack", "pack/linkedin-dense", "pack/social-teaser", "pack/blog-og"}
+}
+
 func generatedHandoffParentIsSafe(outputDir string) bool {
 	err := ensureGeneratedHandoffParentSafe(outputDir)
 	return err == nil || errors.Is(err, os.ErrNotExist)
 }
 
+func generatedPackParentIsSafe(outputDir string) bool {
+	err := ensureGeneratedPackParentSafe(outputDir)
+	return err == nil || errors.Is(err, os.ErrNotExist)
+}
+
+func generatedPackDirsAreSafe(outputDir string) bool {
+	err := ensureGeneratedPackDirsSafe(outputDir)
+	return err == nil || errors.Is(err, os.ErrNotExist)
+}
+
 func relPathUsesGeneratedHandoffDir(relPath string) bool {
 	return strings.HasPrefix(filepath.ToSlash(relPath), "handoff/")
+}
+
+func relPathUsesGeneratedPackDir(relPath string) bool {
+	return strings.HasPrefix(filepath.ToSlash(relPath), "pack/")
 }
 
 func removeEmptyGeneratedHandoffDir(outputDir string) error {
@@ -645,8 +915,38 @@ func removeEmptyGeneratedHandoffDir(outputDir string) error {
 	return fmt.Errorf("remove handoff: %w", err)
 }
 
+func removeEmptyGeneratedPackDirs(outputDir string) error {
+	if err := ensureGeneratedPackDirsSafe(outputDir); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, relDir := range []string{"pack/linkedin-dense", "pack/social-teaser", "pack/blog-og", "pack"} {
+		if err := removeGeneratedDirIfEmpty(outputDir, relDir); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func removeGeneratedDirIfEmpty(outputDir string, relDir string) error {
+	dir := filepath.Join(outputDir, filepath.FromSlash(relDir))
+	err := os.Remove(dir)
+	if err == nil || errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if entries, readErr := os.ReadDir(dir); readErr == nil && len(entries) > 0 {
+		return nil
+	}
+	return fmt.Errorf("remove %s: %w", relDir, err)
+}
+
 func backupGeneratedBundleFiles(outputDir string) (generatedBundleBackup, error) {
 	if err := ensureGeneratedHandoffParentSafe(outputDir); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return generatedBundleBackup{}, err
+	}
+	if err := ensureGeneratedPackDirsSafe(outputDir); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return generatedBundleBackup{}, err
 	}
 	backup := generatedBundleBackup{
@@ -656,6 +956,9 @@ func backupGeneratedBundleFiles(outputDir string) (generatedBundleBackup, error)
 	for _, relPath := range generatedBundleRelPaths() {
 		if relPathUsesGeneratedHandoffDir(relPath) && !generatedHandoffParentIsSafe(outputDir) {
 			return generatedBundleBackup{}, fmt.Errorf("handoff directory is unsafe: %s", filepath.Join(outputDir, "handoff"))
+		}
+		if relPathUsesGeneratedPackDir(relPath) && !generatedPackParentIsSafe(outputDir) {
+			return generatedBundleBackup{}, fmt.Errorf("pack directory is unsafe: %s", filepath.Join(outputDir, "pack"))
 		}
 		path := filepath.Join(outputDir, filepath.FromSlash(relPath))
 		info, err := os.Lstat(path)
@@ -700,16 +1003,21 @@ type generatedFileBackup struct {
 }
 
 func generatedBundleRelPaths() []string {
-	paths := make([]string, 0, len(generatedBundleFiles)+len(generatedHandoffFiles))
+	paths := make([]string, 0, len(generatedBundleFiles)+len(generatedHandoffFiles)+len(generatedPackFiles))
 	paths = append(paths, generatedBundleFiles...)
 	paths = append(paths, generatedHandoffFiles...)
+	paths = append(paths, generatedPackFiles...)
 	return paths
 }
 
 func (backup generatedBundleBackup) restore() {
 	handoffParentSafe := generatedHandoffParentIsSafe(backup.outputDir)
+	packDirsSafe := generatedPackDirsAreSafe(backup.outputDir)
 	for _, file := range backup.files {
 		if relPathUsesGeneratedHandoffDir(file.relPath) && !handoffParentSafe {
+			continue
+		}
+		if relPathUsesGeneratedPackDir(file.relPath) && !packDirsSafe {
 			continue
 		}
 		path := filepath.Join(backup.outputDir, filepath.FromSlash(file.relPath))
@@ -722,6 +1030,9 @@ func (backup generatedBundleBackup) restore() {
 		if relPathUsesGeneratedHandoffDir(file.relPath) && !handoffParentSafe {
 			continue
 		}
+		if relPathUsesGeneratedPackDir(file.relPath) && !packDirsSafe {
+			continue
+		}
 		path := filepath.Join(backup.outputDir, filepath.FromSlash(file.relPath))
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			continue
@@ -730,6 +1041,9 @@ func (backup generatedBundleBackup) restore() {
 		_ = os.Chmod(path, file.mode)
 	}
 	_ = removeEmptyGeneratedHandoffDir(backup.outputDir)
+	if packDirsSafe {
+		_ = removeEmptyGeneratedPackDirs(backup.outputDir)
+	}
 }
 
 func handoffOutputFiles(outputDir string, result handoff.Result) []model.OutputFile {
@@ -739,6 +1053,16 @@ func handoffOutputFiles(outputDir string, result handoff.Result) []model.OutputF
 		outputFile("handoff_checklist", result.ChecklistPath, filepath.Join(outputDir, filepath.FromSlash(result.ChecklistPath))),
 		outputFile("handoff_style", result.StylePath, filepath.Join(outputDir, filepath.FromSlash(result.StylePath))),
 	}
+}
+
+func packOutputFiles(outputDir string, result packWriteResult) []model.OutputFile {
+	files := []model.OutputFile{
+		outputFile("content_pack", result.ContentPackPath, filepath.Join(outputDir, result.ContentPackPath)),
+	}
+	for _, briefPath := range result.BriefPaths {
+		files = append(files, outputFile("pack_brief", briefPath, filepath.Join(outputDir, filepath.FromSlash(briefPath))))
+	}
+	return files
 }
 
 func writeManifestFile(path string, manifest model.Manifest) ([]byte, error) {

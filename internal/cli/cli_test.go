@@ -117,6 +117,58 @@ func TestRunMakeLocalHTMLWritesBundle(t *testing.T) {
 	}
 }
 
+func TestRunPackAutoWritesSuccessOutput(t *testing.T) {
+	outputDir := t.TempDir()
+	var stdout, stderr bytes.Buffer
+
+	code := Run([]string{
+		"make",
+		"--backend", "local",
+		"--renderer", "html",
+		"--pack", "auto",
+		"--out", outputDir,
+		filepath.Join("..", "..", "testdata", "research-knowledge-base.md"),
+	}, &stdout, &stderr)
+
+	if code != 0 {
+		t.Fatalf("Run(make --pack auto) code = %d, want 0; stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	got := stdout.String()
+	for _, want := range []string{"content-pack.json", filepath.Join(outputDir, "pack")} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("stdout missing %q in: %s", want, got)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "content-pack.json")); err != nil {
+		t.Fatalf("Stat(content-pack.json) error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "pack", "linkedin-dense", "brief.md")); err != nil {
+		t.Fatalf("Stat(pack brief) error = %v", err)
+	}
+}
+
+func TestRunUnsupportedPackValueFailsBeforeWrites(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code := Run([]string{"--pack", "carousel", "--out", outputDir, sourcePath}, &stdout, &stderr)
+
+	if code == 0 {
+		t.Fatalf("Run() code = 0, want unsupported pack failure")
+	}
+	if !strings.Contains(strings.ToLower(stderr.String()), "unsupported pack") {
+		t.Fatalf("stderr missing pack explanation: %q", stderr.String())
+	}
+	if _, err := os.Stat(filepath.Join(outputDir, "content-pack.json")); !os.IsNotExist(err) {
+		t.Fatalf("content-pack.json exists after rejected run, stat error = %v", err)
+	}
+}
+
 func TestRunQuickCodexPrintsManualCommand(t *testing.T) {
 	outputDir := filepath.Join(t.TempDir(), "visual output")
 	var stdout bytes.Buffer

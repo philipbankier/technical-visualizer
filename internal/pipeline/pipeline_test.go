@@ -274,6 +274,272 @@ func TestRunNoEvidenceCleansStaleGeneratedBundleFiles(t *testing.T) {
 	}
 }
 
+func TestRunPackAutoWritesPackAndBriefs(t *testing.T) {
+	outputDir := t.TempDir()
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{filepath.Join("..", "..", "testdata", "research-knowledge-base.md")},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Pack:      "auto",
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	for _, rel := range []string{"content-pack.json", "pack/linkedin-dense/brief.md", "pack/social-teaser/brief.md", "pack/blog-og/brief.md"} {
+		info, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Fatalf("Stat(%s) error = %v", rel, err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s permissions = %o, want 0600", rel, info.Mode().Perm())
+		}
+	}
+	if !hasOutputKind(manifest.OutputFiles, "content_pack") {
+		t.Fatalf("manifest missing content_pack output: %#v", manifest.OutputFiles)
+	}
+	if countOutputKind(manifest.OutputFiles, "pack_brief") != 3 {
+		t.Fatalf("manifest pack_brief outputs = %#v, want three", manifest.OutputFiles)
+	}
+	if hasOutputKind(manifest.OutputFiles, "pack_image") {
+		t.Fatalf("local planned pack should not declare generated images: %#v", manifest.OutputFiles)
+	}
+	assertNextStepContains(t, manifest.NextSteps, "content-pack.json")
+	assertNextStepContains(t, manifest.NextSteps, filepath.Join("pack"))
+
+	briefData, err := os.ReadFile(filepath.Join(outputDir, "pack", "linkedin-dense", "brief.md"))
+	if err != nil {
+		t.Fatalf("ReadFile(linkedin brief) error = %v", err)
+	}
+	brief := string(briefData)
+	for _, want := range []string{
+		"Technical Map:",
+		"Target intent",
+		"technical deep-dive infographic",
+		"Density",
+		"high",
+		"Aspect ratio",
+		"16:9",
+		"Required content",
+		"Avoid",
+		"Source references",
+		"planned local output is not a final polished image",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Fatalf("brief missing %q:\n%s", want, brief)
+		}
+	}
+}
+
+func TestRunRejectsUnsupportedPackBeforeWrites(t *testing.T) {
+	sourcePath := filepath.Join(t.TempDir(), "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := t.TempDir()
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Pack:      "carousel",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want unsupported pack failure")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "unsupported pack") {
+		t.Fatalf("Run() error = %q, want unsupported pack explanation", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "content-pack.json")); !os.IsNotExist(statErr) {
+		t.Fatalf("content-pack.json exists after rejected run, stat error = %v", statErr)
+	}
+}
+
+func TestRunNoEvidenceCleansStaleGeneratedPackFiles(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nThis run writes pack files."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Pack:      "auto",
+	})
+	if err != nil {
+		t.Fatalf("initial Run() error = %v", err)
+	}
+	for _, rel := range []string{"content-pack.json", "pack/linkedin-dense/brief.md", "pack/social-teaser/brief.md", "pack/blog-og/brief.md"} {
+		if _, err := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel))); err != nil {
+			t.Fatalf("Stat(%s) after initial run error = %v", rel, err)
+		}
+	}
+	if err := os.Remove(sourcePath); err != nil {
+		t.Fatalf("Remove() error = %v", err)
+	}
+
+	_, err = Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Pack:      "auto",
+	})
+	if err == nil {
+		t.Fatalf("Run() error = nil, want no evidence error")
+	}
+	for _, rel := range []string{"content-pack.json", "pack/linkedin-dense/brief.md", "pack/social-teaser/brief.md", "pack/blog-og/brief.md"} {
+		if _, statErr := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel))); !os.IsNotExist(statErr) {
+			t.Fatalf("%s exists after no-evidence rerun, stat error = %v", rel, statErr)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(outputDir, "pack")); !os.IsNotExist(statErr) {
+		t.Fatalf("pack dir exists after no-evidence cleanup, stat error = %v", statErr)
+	}
+}
+
+func TestRunPackDisabledCleansGeneratedPackFilesAndPreservesCustomPackFiles(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nThis run writes and then disables pack files."), 0o644); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Pack:      "auto",
+	})
+	if err != nil {
+		t.Fatalf("initial Run() error = %v", err)
+	}
+	customPath := filepath.Join(outputDir, "pack", "operator-note.md")
+	if err := os.WriteFile(customPath, []byte("keep me"), 0o600); err != nil {
+		t.Fatalf("WriteFile(custom pack file) error = %v", err)
+	}
+
+	manifest, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Pack:      "off",
+	})
+	if err != nil {
+		t.Fatalf("disabled Run() error = %v", err)
+	}
+	if hasOutputKind(manifest.OutputFiles, "content_pack") || hasOutputKind(manifest.OutputFiles, "pack_brief") {
+		t.Fatalf("disabled pack run declared pack outputs: %#v", manifest.OutputFiles)
+	}
+	for _, rel := range []string{"content-pack.json", "pack/linkedin-dense/brief.md", "pack/social-teaser/brief.md", "pack/blog-og/brief.md"} {
+		if _, statErr := os.Stat(filepath.Join(outputDir, filepath.FromSlash(rel))); !os.IsNotExist(statErr) {
+			t.Fatalf("%s exists after disabled pack rerun, stat error = %v", rel, statErr)
+		}
+	}
+	data, err := os.ReadFile(customPath)
+	if err != nil {
+		t.Fatalf("ReadFile(custom pack file) error = %v", err)
+	}
+	if string(data) != "keep me" {
+		t.Fatalf("custom pack file = %q, want preserved", data)
+	}
+}
+
+func TestRunPackAutoRejectsSymlinkedTargetDirectory(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nSymlinked pack target dirs must not be followed."), 0o644); err != nil {
+		t.Fatalf("WriteFile(source) error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+	if err := os.MkdirAll(filepath.Join(outputDir, "pack"), 0o700); err != nil {
+		t.Fatalf("MkdirAll(pack) error = %v", err)
+	}
+	outside := t.TempDir()
+	outsideBrief := filepath.Join(outside, "brief.md")
+	if err := os.WriteFile(outsideBrief, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("WriteFile(outside brief) error = %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(outputDir, "pack", "linkedin-dense")); err != nil {
+		t.Skipf("Symlink() unsupported: %v", err)
+	}
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Pack:      "auto",
+	})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("Run() error = %v, want symlink rejection", err)
+	}
+	data, err := os.ReadFile(outsideBrief)
+	if err != nil {
+		t.Fatalf("ReadFile(outside brief) error = %v", err)
+	}
+	if string(data) != "outside" {
+		t.Fatalf("outside brief = %q, want unchanged", data)
+	}
+}
+
+func TestRunPackDisabledRejectsSymlinkedTargetDirectoryBeforeCleanup(t *testing.T) {
+	root := t.TempDir()
+	sourcePath := filepath.Join(root, "notes.md")
+	if err := os.WriteFile(sourcePath, []byte("# System\n\nSymlinked pack target dirs must not be cleaned through."), 0o644); err != nil {
+		t.Fatalf("WriteFile(source) error = %v", err)
+	}
+	outputDir := filepath.Join(root, "out")
+
+	_, err := Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Pack:      "auto",
+	})
+	if err != nil {
+		t.Fatalf("initial Run() error = %v", err)
+	}
+	if err := os.RemoveAll(filepath.Join(outputDir, "pack", "linkedin-dense")); err != nil {
+		t.Fatalf("RemoveAll(linkedin-dense) error = %v", err)
+	}
+	outside := t.TempDir()
+	outsideBrief := filepath.Join(outside, "brief.md")
+	if err := os.WriteFile(outsideBrief, []byte("outside"), 0o600); err != nil {
+		t.Fatalf("WriteFile(outside brief) error = %v", err)
+	}
+	if err := os.Symlink(outside, filepath.Join(outputDir, "pack", "linkedin-dense")); err != nil {
+		t.Skipf("Symlink() unsupported: %v", err)
+	}
+
+	_, err = Run(context.Background(), Options{
+		Sources:   []string{sourcePath},
+		OutputDir: outputDir,
+		Backend:   "local",
+		Renderer:  "html",
+		Pack:      "off",
+	})
+	if err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("Run() error = %v, want symlink rejection", err)
+	}
+	data, err := os.ReadFile(outsideBrief)
+	if err != nil {
+		t.Fatalf("ReadFile(outside brief) error = %v", err)
+	}
+	if string(data) != "outside" {
+		t.Fatalf("outside brief = %q, want unchanged", data)
+	}
+}
+
 func TestRunNoEvidenceCleansStaleHandoffFiles(t *testing.T) {
 	root := t.TempDir()
 	sourcePath := filepath.Join(root, "notes.md")
@@ -833,6 +1099,16 @@ func hasOutputKind(files []model.OutputFile, kind string) bool {
 	return slices.ContainsFunc(files, func(file model.OutputFile) bool {
 		return file.Kind == kind
 	})
+}
+
+func countOutputKind(files []model.OutputFile, kind string) int {
+	count := 0
+	for _, file := range files {
+		if file.Kind == kind {
+			count++
+		}
+	}
+	return count
 }
 
 func useFakePDFToText(t *testing.T, version string, text string, stderr []byte) {

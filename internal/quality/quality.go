@@ -123,6 +123,18 @@ type outputFileSummary struct {
 	SHA256 string `json:"sha256"`
 }
 
+type contentPackSummary struct {
+	SchemaVersion string              `json:"schema_version"`
+	Targets       []packTargetSummary `json:"targets"`
+}
+
+type packTargetSummary struct {
+	ID         string `json:"id"`
+	BriefPath  string `json:"brief_path"`
+	OutputPath string `json:"output_path"`
+	State      string `json:"state"`
+}
+
 func validateManifest(dir string) []Issue {
 	// #nosec G304 -- quality validation reads the generated manifest inside the caller-selected output directory.
 	data, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
@@ -161,9 +173,14 @@ func validateManifest(dir string) []Issue {
 	issues = append(issues, validateAudit(manifest.Audit, len(manifest.Sources), manifest.Backend.Name, len(manifest.Warnings))...)
 
 	outputs := map[string]outputFileSummary{}
+	outputsByKind := map[string][]outputFileSummary{}
 	for _, file := range manifest.OutputFiles {
-		if strings.TrimSpace(file.Kind) != "" {
-			outputs[file.Kind] = file
+		kind := strings.TrimSpace(file.Kind)
+		if kind != "" {
+			if _, ok := outputs[kind]; !ok {
+				outputs[kind] = file
+			}
+			outputsByKind[kind] = append(outputsByKind[kind], file)
 		}
 	}
 
@@ -181,6 +198,7 @@ func validateManifest(dir string) []Issue {
 		issues = append(issues, validateOutputFile(dir, kind, expectedPath, file)...)
 	}
 	issues = append(issues, validateHandoffOutputFiles(dir, outputs)...)
+	issues = append(issues, validatePackOutputFiles(dir, outputsByKind)...)
 
 	return issues
 }
@@ -212,6 +230,101 @@ func validateHandoffOutputFiles(dir string, outputs map[string]outputFileSummary
 		issues = append(issues, validateOutputFile(dir, kind, expectedPath, file)...)
 	}
 	return issues
+}
+
+func validatePackOutputFiles(dir string, outputs map[string][]outputFileSummary) []Issue {
+	var issues []Issue
+	contentPacks := outputs["content_pack"]
+	var contentPack contentPackSummary
+	contentPackOK := false
+	if len(contentPacks) > 0 {
+		if len(contentPacks) > 1 {
+			issues = append(issues, Issue{Path: "manifest.json", Message: "output_files must declare one content_pack"})
+		}
+		contentPackIssues := validateOutputFile(dir, "content_pack", "content-pack.json", contentPacks[0])
+		issues = append(issues, contentPackIssues...)
+		if len(contentPackIssues) == 0 {
+			var ok bool
+			contentPack, ok = readContentPack(filepath.Join(dir, "content-pack.json"), &issues)
+			if ok {
+				contentPackOK = true
+				issues = append(issues, validateContentPackTargets(contentPack)...)
+			}
+		}
+	}
+
+	for _, file := range outputs["pack_brief"] {
+		issues = append(issues, validateDeclaredOutputFile(dir, "pack_brief", file)...)
+	}
+
+	targetsByOutput := map[string]packTargetSummary{}
+	if contentPackOK {
+		for _, target := range contentPack.Targets {
+			cleanPath, ok := cleanSafeRelPath(target.OutputPath)
+			if ok {
+				targetsByOutput[cleanPath] = target
+			}
+		}
+	}
+	for _, file := range outputs["pack_image"] {
+		cleanPath, pathIssues := validateOutputFilePath("pack_image", file.Path)
+		issues = append(issues, pathIssues...)
+		if len(pathIssues) == 0 {
+			if target, ok := targetsByOutput[cleanPath]; ok && (target.State == "planned" || target.State == "handoff_ready") {
+				issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("pack_image %q cannot be declared for target %q in state %q", file.Path, target.ID, target.State)})
+			}
+			issues = append(issues, validateOutputFileHash(dir, "pack_image", cleanPath, file)...)
+		}
+	}
+	return issues
+}
+
+func readContentPack(path string, issues *[]Issue) (contentPackSummary, bool) {
+	// #nosec G304 -- quality validation reads the generated content pack inside the output bundle.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		*issues = append(*issues, Issue{Path: "content-pack.json", Message: err.Error()})
+		return contentPackSummary{}, false
+	}
+
+	var contentPack contentPackSummary
+	if err := json.Unmarshal(data, &contentPack); err != nil {
+		*issues = append(*issues, Issue{Path: "content-pack.json", Message: "invalid content pack json: " + err.Error()})
+		return contentPackSummary{}, false
+	}
+	if contentPack.SchemaVersion != "content-pack/v1" {
+		*issues = append(*issues, Issue{Path: "content-pack.json", Message: fmt.Sprintf("schema_version = %q, want content-pack/v1", contentPack.SchemaVersion)})
+		return contentPack, false
+	}
+	return contentPack, true
+}
+
+func validateContentPackTargets(contentPack contentPackSummary) []Issue {
+	var issues []Issue
+	for index, target := range contentPack.Targets {
+		prefix := fmt.Sprintf("target %d", index)
+		if strings.TrimSpace(target.ID) == "" {
+			issues = append(issues, Issue{Path: "content-pack.json", Message: prefix + " id must not be empty"})
+		}
+		if _, ok := cleanSafeRelPath(target.BriefPath); !ok {
+			issues = append(issues, Issue{Path: "content-pack.json", Message: fmt.Sprintf("%s brief_path has unsafe path %q", prefix, target.BriefPath)})
+		}
+		if _, ok := cleanSafeRelPath(target.OutputPath); !ok {
+			issues = append(issues, Issue{Path: "content-pack.json", Message: fmt.Sprintf("%s output_path has unsafe path %q", prefix, target.OutputPath)})
+		}
+		if !allowedValue(target.State, []string{"planned", "handoff_ready", "generated", "verified", "failed"}) {
+			issues = append(issues, Issue{Path: "content-pack.json", Message: fmt.Sprintf("%s state = %q is not supported", prefix, target.State)})
+		}
+	}
+	return issues
+}
+
+func validateDeclaredOutputFile(dir string, kind string, file outputFileSummary) []Issue {
+	cleanPath, issues := validateOutputFilePath(kind, file.Path)
+	if len(issues) > 0 {
+		return issues
+	}
+	return validateOutputFileHash(dir, kind, cleanPath, file)
 }
 
 func validateAudit(audit auditSummary, sourceCount int, selectedBackend string, warningCount int) []Issue {
@@ -338,13 +451,9 @@ func allowedValue(value string, allowed []string) bool {
 }
 
 func validateOutputFile(dir string, kind string, expectedPath string, file outputFileSummary) []Issue {
-	var issues []Issue
-	if strings.Contains(file.Path, "\\") {
-		return []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q has unsafe path %q", kind, file.Path)}}
-	}
-	cleanPath := path.Clean(file.Path)
-	if cleanPath == "." || path.IsAbs(cleanPath) || strings.HasPrefix(cleanPath, "../") || cleanPath == ".." {
-		return []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q has unsafe path %q", kind, file.Path)}}
+	cleanPath, issues := validateOutputFilePath(kind, file.Path)
+	if len(issues) > 0 {
+		return issues
 	}
 	if cleanPath != expectedPath {
 		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("output file %q path = %q, want %q", kind, file.Path, expectedPath)})
@@ -354,19 +463,48 @@ func validateOutputFile(dir string, kind string, expectedPath string, file outpu
 		return issues
 	}
 
+	return append(issues, validateOutputFileHash(dir, kind, cleanPath, file)...)
+}
+
+func validateOutputFilePath(kind string, filePath string) (string, []Issue) {
+	if strings.Contains(filePath, "\\") {
+		return "", []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q has unsafe path %q", kind, filePath)}}
+	}
+	cleanPath, ok := cleanSafeRelPath(filePath)
+	if !ok {
+		return "", []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q has unsafe path %q", kind, filePath)}}
+	}
+	return cleanPath, nil
+}
+
+func cleanSafeRelPath(filePath string) (string, bool) {
+	if strings.Contains(filePath, "\\") {
+		return "", false
+	}
+	for _, part := range strings.Split(filePath, "/") {
+		if part == ".." {
+			return "", false
+		}
+	}
+	cleanPath := path.Clean(filePath)
+	if cleanPath == "." || path.IsAbs(cleanPath) || strings.HasPrefix(cleanPath, "../") || cleanPath == ".." {
+		return "", false
+	}
+	return cleanPath, true
+}
+
+func validateOutputFileHash(dir string, kind string, cleanPath string, file outputFileSummary) []Issue {
 	if strings.TrimSpace(file.SHA256) == "" {
-		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("output file %q sha256 must not be empty", kind)})
-		return issues
+		return []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q sha256 must not be empty", kind)}}
 	}
 	actual, err := fileSHA256(filepath.Join(dir, filepath.FromSlash(cleanPath)))
 	if err != nil {
-		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("output file %q sha256 could not be checked: %v", kind, err)})
-		return issues
+		return []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q sha256 could not be checked: %v", kind, err)}}
 	}
 	if !strings.EqualFold(file.SHA256, actual) {
-		issues = append(issues, Issue{Path: "manifest.json", Message: fmt.Sprintf("output file %q sha256 mismatch", kind)})
+		return []Issue{{Path: "manifest.json", Message: fmt.Sprintf("output file %q sha256 mismatch", kind)}}
 	}
-	return issues
+	return nil
 }
 
 func fileSHA256(path string) (string, error) {

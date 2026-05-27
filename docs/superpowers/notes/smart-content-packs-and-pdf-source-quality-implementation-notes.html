@@ -124,6 +124,23 @@
           such as <code>title</code>, <code>top claims</code>, and <code>core message</code>.
         </p>
       </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7</div>
+        <p>
+          The pipeline now treats <code>--pack auto</code> as a local bundle-writing stage after
+          <code>visual-packet.json</code> exists. The manifest declares <code>content_pack</code>
+          and one <code>pack_brief</code> per deterministic target, but it still does not declare
+          <code>pack_image</code> outputs because this task only writes planned briefs.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7 review</div>
+        <p>
+          Generated pack directory safety now checks both <code>pack</code> and deterministic
+          target directories before backup, cleanup, and brief writes. This prevents writes or
+          cleanup from following symlinked target directories such as <code>pack/linkedin-dense</code>.
+        </p>
+      </div>
     </section>
 
     <section>
@@ -133,6 +150,16 @@
         <p>
           No approved deviation yet. The plan keeps <code>--backend codex</code> rejected and treats
           Codex image generation as a manual handoff workflow.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7</div>
+        <p>
+          The planned rollback test for failed target image generation is not applicable in the
+          current architecture because Task 7 does not generate target images. Quality validation
+          instead rejects <code>pack_image</code> manifest entries for <code>planned</code> and
+          <code>handoff_ready</code> targets; sibling target image preservation belongs with the
+          later pack image generation task.
         </p>
       </div>
     </section>
@@ -208,6 +235,14 @@
           Unknown or empty target states now derive an overall <code>partial</code> status instead
           of <code>planned</code>. This avoids hiding malformed target state data when the pipeline
           starts writing pack artifacts.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7</div>
+        <p>
+          Pack cleanup tracks only <code>content-pack.json</code> and the three generated
+          <code>brief.md</code> files. It removes empty generated target directories after cleanup
+          while preserving unrelated operator files under <code>pack/</code>.
         </p>
       </div>
       <div class="entry">
@@ -290,6 +325,15 @@
           Red command: <code>go test ./internal/pack -count=1</code> failed with undefined pack
           symbols after adding the tests. After implementation, <code>go test ./internal/pack
           -count=1</code> passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7</div>
+        <p>
+          Red command: <code>go test ./internal/pipeline ./internal/cli ./internal/quality -run 'Pack|ContentPack' -count=1</code>
+          failed because <code>pipeline.Options.Pack</code> and the CLI flag were missing, and
+          quality validation accepted invalid content-pack declarations. After implementation, the
+          same targeted command passed.
         </p>
       </div>
     </section>
