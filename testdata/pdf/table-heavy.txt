@@ -1,0 +1,11 @@
+Table 1  Result Matrix
+System        Accuracy   Notes
+baseline      71.2       simple markdown source
+pdf-source    82.4       extracted with layout mode
+
+Metric | Value | Source
+Claims | 12    | packet
+Risks  | 3     | audit
+
+References
+Tabular spacing and pipe separators stay intact for deterministic extraction.

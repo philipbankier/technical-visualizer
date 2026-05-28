@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/philipbankier/technical-visualizer/internal/extract"
 	"github.com/philipbankier/technical-visualizer/internal/model"
 )
 
@@ -34,6 +35,7 @@ func Build(bundle model.EvidenceBundle, opts BuildOptions) (model.VisualPacket, 
 	primaryName := sourceName(primary)
 	title := "Technical Map: " + primaryName
 	labels := sourceLabels(primaryName, bundle)
+	extracted := extract.FromEvidence(bundle)
 
 	packet := model.VisualPacket{
 		SchemaVersion: "visual-packet/v1",
@@ -42,9 +44,16 @@ func Build(bundle model.EvidenceBundle, opts BuildOptions) (model.VisualPacket, 
 		Title:         title,
 		Thesis:        buildThesis(primaryName, len(bundle.Items)),
 		RequiredText:  requiredText(title, labels),
-		RankedClaims:  rankedClaims(primaryName, bundle),
+		RankedClaims:  rankedClaims(primaryName, bundle, extracted),
 		Facts:         factsFromItems(bundle),
 		Sections:      sectionsFromLabels(primaryName, labels),
+		ContentBlocks: extracted.ContentBlocks,
+		Metrics:       extracted.Metrics,
+		Timeline:      extracted.Timeline,
+		Entities:      extracted.Entities,
+		Tables:        extracted.Tables,
+		Diagrams:      extracted.Diagrams,
+		OpenQuestions: extracted.OpenQuestions,
 		Risks:         risksFromWarnings(bundle.Warnings),
 		Unknowns:      unknownsFromWarnings(bundle.Warnings),
 		Layout: model.LayoutSpec{
@@ -176,9 +185,22 @@ func requiredText(title string, labels []string) []string {
 	return required
 }
 
-func rankedClaims(primaryName string, bundle model.EvidenceBundle) []model.Claim {
+func rankedClaims(primaryName string, bundle model.EvidenceBundle, extracted extract.Result) []model.Claim {
 	sources := sourcesByID(bundle.Sources)
-	claims := make([]model.Claim, 0, 5)
+	const maxRankedClaims = 6
+	claims := make([]model.Claim, 0, maxRankedClaims)
+	for _, metric := range extracted.Metrics {
+		claims = append(claims, model.Claim{
+			ID:         "claim-" + strconv.Itoa(len(claims)+1),
+			Text:       metricClaimText(metric),
+			Kind:       "metric",
+			Confidence: "source-backed",
+			SourceRefs: metric.SourceRefs,
+		})
+		if len(claims) == 3 {
+			break
+		}
+	}
 	for _, item := range bundle.Items {
 		label := itemLabel(item, sources[item.SourceID])
 		if label == "" {
@@ -196,11 +218,50 @@ func rankedClaims(primaryName string, bundle model.EvidenceBundle) []model.Claim
 			SourceRefs: sourceRefsForItem(item),
 		}
 		claims = append(claims, claim)
-		if len(claims) == 5 {
+		if len(claims) == maxRankedClaims {
 			break
 		}
 	}
 	return claims
+}
+
+func metricClaimText(metric model.Metric) string {
+	context := cleanClaimContext(metric.Context)
+	if context == "" {
+		return ensureSentence(metric.Label + " reports " + metric.Value)
+	}
+	if strings.Contains(context, metric.Value) {
+		return ensureSentence(metric.Label + " highlights " + context)
+	}
+	return ensureSentence(metric.Label + " reports " + metric.Value + " in " + strings.TrimSuffix(context, "."))
+}
+
+func cleanClaimContext(context string) string {
+	context = strings.TrimSpace(context)
+	for {
+		cleaned := strings.TrimSpace(stripListMarker(context))
+		if cleaned == context {
+			return cleaned
+		}
+		context = cleaned
+	}
+}
+
+func stripListMarker(text string) string {
+	switch {
+	case strings.HasPrefix(text, "- "), strings.HasPrefix(text, "* "):
+		return text[2:]
+	}
+	dot := strings.Index(text, ". ")
+	if dot <= 0 {
+		return text
+	}
+	for _, r := range text[:dot] {
+		if !unicode.IsDigit(r) {
+			return text
+		}
+	}
+	return text[dot+2:]
 }
 
 func factsFromItems(bundle model.EvidenceBundle) []model.Fact {

@@ -48,6 +48,79 @@ func TestWriteScaffoldEscapesAndIncludesPacketContent(t *testing.T) {
 	assertEscaped(t, got, packet.Style.Renderer)
 }
 
+func TestWriteScaffoldRendersRichPacketFields(t *testing.T) {
+	packet := scaffoldTestPacket()
+	packet.Metrics = []model.Metric{{ID: "metric-1", Label: "SkillOpt accuracy lift", Value: "+23.5", Context: "held-out tasks"}}
+	packet.Timeline = []model.TimelineEvent{{ID: "time-1", Date: "2023-02", Label: "Toolformer", Summary: "Self-supervised tool use"}}
+	packet.Tables = []model.PacketTable{{ID: "table-1", Title: "5-layer stack", Headers: []string{"Layer", "Purpose"}, Rows: [][]string{{"Trigger", "Decides when to activate"}}}}
+	packet.Diagrams = []model.Diagram{{ID: "diagram-1", Title: "SkillOpt pipeline", Kind: "ascii", Text: "[Tasks] -> [Failures]"}}
+	packet.OpenQuestions = []model.OpenQuestion{{ID: "question-1", Text: "How should agents choose between overlapping skills?"}}
+	packet.ContentBlocks = []model.ContentBlock{{ID: "block-1", Kind: "section", Title: "Executive Summary", Summary: "Agent skills are reusable procedural knowledge."}}
+
+	var buf bytes.Buffer
+	if err := WriteScaffold(&buf, packet); err != nil {
+		t.Fatalf("WriteScaffold() error = %v", err)
+	}
+	got := buf.String()
+	for _, want := range []string{
+		"Key Metrics",
+		"SkillOpt accuracy lift",
+		"&#43;23.5",
+		"Timeline",
+		"2023-02",
+		"Tables",
+		"<table>",
+		"<th>Layer</th>",
+		"<th>Purpose</th>",
+		"<td>Trigger</td>",
+		"Trigger",
+		"Diagrams",
+		"[Tasks] -&gt; [Failures]",
+		"Open Questions",
+		"overlapping skills",
+		"Executive Summary",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("scaffold missing %q in: %s", want, got)
+		}
+	}
+}
+
+func TestWriteScaffoldDoesNotEmitTrailingWhitespace(t *testing.T) {
+	packet := scaffoldTestPacket()
+	packet.Metrics = nil
+	packet.Timeline = nil
+	packet.Tables = nil
+	packet.Diagrams = nil
+	packet.OpenQuestions = nil
+	packet.ContentBlocks = nil
+
+	var buf bytes.Buffer
+	if err := WriteScaffold(&buf, packet); err != nil {
+		t.Fatalf("WriteScaffold() error = %v", err)
+	}
+	for lineNumber, line := range strings.Split(buf.String(), "\n") {
+		if strings.HasSuffix(line, " ") || strings.HasSuffix(line, "\t") {
+			t.Fatalf("line %d has trailing whitespace: %q", lineNumber+1, line)
+		}
+	}
+}
+
+func TestWriteScaffoldPreservesDiagramTrailingWhitespace(t *testing.T) {
+	packet := scaffoldTestPacket()
+	packet.Diagrams = []model.Diagram{{ID: "diagram-1", Title: "Aligned diagram", Kind: "ascii", Text: "left   \nright\t"}}
+
+	var buf bytes.Buffer
+	if err := WriteScaffold(&buf, packet); err != nil {
+		t.Fatalf("WriteScaffold() error = %v", err)
+	}
+	got := buf.String()
+	want := "<pre>left   \nright\t</pre>"
+	if !strings.Contains(got, want) {
+		t.Fatalf("scaffold did not preserve diagram whitespace %q in: %s", want, got)
+	}
+}
+
 func TestWriteScaffoldFile(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "nested", "scaffold.html")

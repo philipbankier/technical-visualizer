@@ -19,6 +19,8 @@ Run backend checks with:
 visualize doctor
 ```
 
+Doctor also reports whether local Poppler `pdftotext` is available for PDF text extraction.
+
 ## Local And Offline
 
 Use local mode when source content should stay on the machine:
@@ -49,14 +51,39 @@ ChatGPT and Codex subscription access is separate from OpenAI API credentials.
 - In supported Codex environments, Codex may have built-in image generation without `OPENAI_API_KEY`.
 - v0.1 does not support `visualize --backend codex`.
 
-Codex handoff:
+## Codex Handoff Package
+
+Use `--handoff codex` when you want the CLI to prepare an agent-ready package:
 
 ```bash
-visualize --backend local --renderer html --out visualize-output https://github.com/example/service
-codex -C . "Inspect visualize-output/visual-packet.json and visualize-output/scaffold.html, then generate a polished technical visualization image using your image generation tool. Save the final PNG back into visualize-output/final.png."
+visualize --backend local --renderer html --handoff codex --out visualize-output ./research-knowledge-base.md
 ```
 
-Use `--backend openai` when you want the Go binary itself to make the image API call. Use the Codex handoff when you want an agent to inspect the bundle and use tools available in that agent environment.
+This writes `handoff/codex-prompt.md`, `handoff/image-brief.md`, `handoff/qa-checklist.md`, and `handoff/style.md`. When `--pack auto` is also selected, it also writes `handoff/content-pack-codex-prompt.md` for the target briefs under `pack/`.
+
+For a fast manual handoff, add `--quick`:
+
+```bash
+visualize --backend local --renderer html --handoff codex --quick --out visualize-output ./research-knowledge-base.md
+```
+
+Quick mode prints a POSIX shell command you can run in interactive Codex. The CLI does not run Codex for you and does not support `--backend codex`.
+
+Use `--backend openai` when you want the Go binary itself to make the image API call. Use `--handoff codex` when you want an agent to inspect the bundle and use tools available in that agent environment.
+
+## Content Packs
+
+Use `--pack auto` when you want a bundle for several related images, such as a dense LinkedIn technical graphic, a lighter social teaser, and a blog open graph hero:
+
+```bash
+visualize --pack auto --out visualize-output https://github.com/example/service
+visualize --pack auto --handoff codex --quick --out visualize-output https://github.com/example/service
+OPENAI_API_KEY=... visualize --pack auto --backend openai --renderer image --out visualize-output ./source
+```
+
+This writes `content-pack.json` and target briefs under `pack/`. Direct OpenAI image runs also write target `final.png` files under each target directory. Local runs write briefs only and do not claim generated pack images in the manifest.
+
+The default planner is deterministic. `--planner openai` asks the OpenAI Responses API for a schema-checked content pack plan and requires `--pack auto` plus `OPENAI_API_KEY`. It is rejected with `--offline`. With `--backend auto` or `--backend hybrid`, planner failures fall back to deterministic planning with a warning. With explicit `--backend openai`, planner failures stop the run.
 
 ## Output Files
 
@@ -64,6 +91,9 @@ Use `--backend openai` when you want the Go binary itself to make the image API 
 - `visual-packet.json`: source-backed renderer packet
 - `manifest.json`: sources, backend, warnings, audit metadata, and output hashes
 - `final.png`: OpenAI image output or deterministic local fallback preview
+- `content-pack.json`: optional multi-target content pack from `--pack auto`
+- `pack/`: optional target briefs and generated target images from `--pack auto`
+- `handoff/`: optional Codex prompt, image brief, QA checklist, style notes, and pack prompt from `--handoff codex`
 
 In v0.1, `scaffold.html` is the main local artifact to inspect. Local `final.png` is a deterministic preview, not a finished design renderer.
 
@@ -71,13 +101,14 @@ In v0.1, `scaffold.html` is the main local artifact to inspect. Local `final.png
 
 `--renderer html` is scaffold-first mode. It always writes the local fallback `final.png`, records the selected backend as `local`, and does not call remote image generation. Use `--renderer image` or the default `hybrid` renderer when you want the selected backend to generate `final.png`.
 
-| Backend        | Remote source fetch      | Remote image call                                              | Behavior                                              |
-| -------------- | ------------------------ | -------------------------------------------------------------- | ----------------------------------------------------- |
-| `local`        | yes, unless `--offline`  | no                                                             | writes scaffold and local fallback preview            |
-| `openai`       | yes, unless local input  | yes, when renderer is `image` or `hybrid`                      | calls OpenAI Images API and fails if generation fails  |
-| `auto`         | yes, unless `--offline`  | yes, when credentials exist and renderer is `image` or `hybrid` | tries OpenAI, falls back locally with warning          |
-| `hybrid`       | yes, unless `--offline`  | yes, when credentials exist and renderer is `image` or `hybrid` | tries OpenAI, falls back locally with warning          |
-| Codex handoff  | handled by the agent     | handled by the agent                                           | agent reads packet and scaffold, then saves an image   |
+| Backend  | Remote source fetch      | Remote image call                                               | Behavior                                              |
+| -------- | ------------------------ | --------------------------------------------------------------- | ----------------------------------------------------- |
+| `local`  | yes, unless `--offline`  | no                                                              | writes scaffold and local fallback preview            |
+| `openai` | yes, unless local input  | yes, when renderer is `image` or `hybrid`                       | calls OpenAI Images API and fails if generation fails  |
+| `auto`   | yes, unless `--offline`  | yes, when credentials exist and renderer is `image` or `hybrid` | tries OpenAI, falls back locally with warning          |
+| `hybrid` | yes, unless `--offline`  | yes, when credentials exist and renderer is `image` or `hybrid` | tries OpenAI, falls back locally with warning          |
+
+Codex handoff is separate from backend selection. Use `--handoff codex` to write an optional local handoff package for an interactive agent.
 
 See [docs/backends.md](docs/backends.md) for backend details.
 
@@ -89,7 +120,7 @@ Supported v0.1 inputs:
 - Docs site URLs
 - Markdown files and URLs
 - JSON files as evidence inputs
-- PDF files and URLs, but only alongside at least one text, repo, JSON, or docs source. v0.1 emits warnings and no PDF text evidence, so PDF-only runs fail with no evidence gathered.
+- PDF files and URLs. The CLI uses local Poppler `pdftotext` when installed. PDF-only runs can succeed when extraction produces enough readable text. Scanned or image-only PDFs still fail with a low-evidence message.
 - Local repo paths
 
 Direct local inputs that look like secrets, credentials, or private keys are rejected. Repo scans skip secret-like files, generated directories, symlinks, large files, and binary-looking files by default.
@@ -98,7 +129,9 @@ Direct local inputs that look like secrets, credentials, or private keys are rej
 
 The default backend is `local`. Source-derived content is not uploaded just because `OPENAI_API_KEY` is present.
 
-Use `--offline` to avoid remote source fetching and remote image generation. Explicit `--backend openai --offline` is rejected before bundle files are written.
+Use `--offline` to avoid remote source fetching, remote image generation, and remote content-pack planning. Explicit `--backend openai --offline` and `--planner openai --offline` are rejected before bundle files are written.
+
+PDF text extraction is local by default. PDF content is not sent to a remote service unless you choose a remote image backend after packet creation, choose `--planner openai` for remote content-pack planning, or a future explicit remote parsing mode is added and selected.
 
 Generated bundles and cache directories use private permissions by default because they can contain source-derived content. Secrets are read from environment variables. Do not place API keys in source files.
 

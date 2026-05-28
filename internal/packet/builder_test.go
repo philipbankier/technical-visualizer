@@ -1,6 +1,8 @@
 package packet
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -87,8 +89,8 @@ func TestBuildCreatesSourceSpecificVisualPacket(t *testing.T) {
 	if sourceLabelCount < 3 {
 		t.Fatalf("RequiredText = %#v, want at least three source-specific labels", packet.RequiredText)
 	}
-	if len(packet.RankedClaims) == 0 || len(packet.RankedClaims) > 5 {
-		t.Fatalf("RankedClaims length = %d, want 1..5", len(packet.RankedClaims))
+	if len(packet.RankedClaims) == 0 || len(packet.RankedClaims) > 6 {
+		t.Fatalf("RankedClaims length = %d, want 1..6", len(packet.RankedClaims))
 	}
 	for _, claim := range packet.RankedClaims {
 		if len(claim.SourceRefs) == 0 {
@@ -123,6 +125,113 @@ func TestBuildCreatesSourceSpecificVisualPacket(t *testing.T) {
 	}
 	if !hasUnknownContaining(packet.Unknowns, "pdf text extraction") {
 		t.Fatalf("Unknowns = %#v, want PDF extraction warning with uncertainty text", packet.Unknowns)
+	}
+}
+
+func TestBuildPreservesDenseResearchContent(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "testdata", "research-knowledge-base.md"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	bundle := model.EvidenceBundle{
+		SchemaVersion: "evidence/v1",
+		Sources: []model.SourceSpec{{
+			ID:    "src-research",
+			Kind:  model.SourceMarkdown,
+			Input: "research-knowledge-base.md",
+		}},
+		Items: []model.EvidenceItem{{
+			ID:       "src-research-doc",
+			SourceID: "src-research",
+			Kind:     "markdown",
+			Title:    "research-knowledge-base.md",
+			Text:     string(data),
+			Path:     "research-knowledge-base.md",
+		}},
+	}
+
+	packet, err := Build(bundle, BuildOptions{Goal: "research-infographic", Style: "executive-dark", Renderer: "html"})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	if len(packet.RankedClaims) < 3 {
+		t.Fatalf("RankedClaims length = %d, want at least 3", len(packet.RankedClaims))
+	}
+	for i, claim := range packet.RankedClaims[:3] {
+		if claim.Kind != "metric" {
+			t.Fatalf("RankedClaims[%d].Kind = %q, want metric", i, claim.Kind)
+		}
+		if len(claim.SourceRefs) == 0 {
+			t.Fatalf("RankedClaims[%d] missing source refs: %#v", i, claim)
+		}
+		if strings.Contains(claim.Text, " in - ") || strings.Contains(claim.Text, "\n- ") || strings.Contains(claim.Text, " in * ") {
+			t.Fatalf("RankedClaims[%d] has raw markdown marker: %q", i, claim.Text)
+		}
+	}
+	if !packetHasMetric(packet, "+23.5") || !packetHasMetric(packet, "52/52") {
+		t.Fatalf("packet metrics missing expected values: %#v", packet.Metrics)
+	}
+	if !packetHasEntity(packet, "SkillOpt") || !packetHasEntity(packet, "Voyager") {
+		t.Fatalf("packet entities missing expected papers: %#v", packet.Entities)
+	}
+	if len(packet.Tables) == 0 || len(packet.Timeline) == 0 || len(packet.OpenQuestions) == 0 || len(packet.Diagrams) == 0 {
+		t.Fatalf("packet missing rich fields: tables=%d timeline=%d questions=%d diagrams=%d", len(packet.Tables), len(packet.Timeline), len(packet.OpenQuestions), len(packet.Diagrams))
+	}
+	for _, claim := range packet.RankedClaims {
+		if strings.Contains(claim.Text, "Table of Contents: 1.") {
+			t.Fatalf("claim relies on table of contents instead of source content: %#v", claim)
+		}
+	}
+}
+
+func TestBuildPacketFromPDFTextKeepsRichSignals(t *testing.T) {
+	bundle := model.EvidenceBundle{
+		SchemaVersion: "evidence/v1",
+		Sources: []model.SourceSpec{{
+			ID:    "src-paper",
+			Kind:  model.SourcePDF,
+			Input: "paper.pdf",
+		}},
+		Items: []model.EvidenceItem{{
+			ID:       "item-paper",
+			SourceID: "src-paper",
+			Kind:     "pdf_text",
+			Title:    "paper.pdf",
+			Text: strings.Join([]string{
+				"# Abstract",
+				"",
+				"SkillOpt reports +23.5 accuracy.",
+				"",
+				"# Core Papers",
+				"",
+				"### 1. Voyager",
+				"",
+				"- Date: 2023-05",
+				"- Result: solved 52/52 discovered tasks.",
+				"",
+				"# Timeline",
+				"",
+				"- 2025-01: SkillOpt reports automated skill prompt optimization.",
+				"",
+				"Open Questions",
+				"",
+				"1. How should agents choose overlapping skills?",
+				"",
+			}, "\n"),
+			SourceRefs: []string{"paper.pdf#page=1"},
+		}},
+	}
+
+	packet, err := Build(bundle, DefaultBuildOptions())
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if len(packet.Metrics) == 0 || len(packet.Timeline) == 0 || len(packet.Entities) == 0 || len(packet.OpenQuestions) == 0 {
+		t.Fatalf("packet missing rich PDF signals: metrics=%#v timeline=%#v entities=%#v questions=%#v", packet.Metrics, packet.Timeline, packet.Entities, packet.OpenQuestions)
+	}
+	if !packetHasQuestion(packet, "overlapping skills") {
+		t.Fatalf("packet questions missing expected PDF question: %#v", packet.OpenQuestions)
 	}
 }
 
@@ -428,7 +537,7 @@ func TestBuildSanitizesPathLikeItemMetadataLabels(t *testing.T) {
 	}
 }
 
-func TestBuildLimitsRankedClaimsToFive(t *testing.T) {
+func TestBuildLimitsRankedClaimsToSix(t *testing.T) {
 	bundle := model.EvidenceBundle{
 		SchemaVersion: "evidence/v1",
 		Sources: []model.SourceSpec{{
@@ -453,8 +562,8 @@ func TestBuildLimitsRankedClaimsToFive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Build() error = %v", err)
 	}
-	if len(packet.RankedClaims) != 5 {
-		t.Fatalf("RankedClaims length = %d, want exactly 5", len(packet.RankedClaims))
+	if len(packet.RankedClaims) != 6 {
+		t.Fatalf("RankedClaims length = %d, want exactly 6", len(packet.RankedClaims))
 	}
 }
 
@@ -522,6 +631,34 @@ func hasClaimOrFactContaining(packet model.VisualPacket, text string) bool {
 	}
 	for _, fact := range packet.Facts {
 		if strings.Contains(fact.Text, text) {
+			return true
+		}
+	}
+	return false
+}
+
+func packetHasMetric(packet model.VisualPacket, value string) bool {
+	for _, metric := range packet.Metrics {
+		if metric.Value == value {
+			return true
+		}
+	}
+	return false
+}
+
+func packetHasEntity(packet model.VisualPacket, name string) bool {
+	for _, entity := range packet.Entities {
+		if strings.Contains(entity.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func packetHasQuestion(packet model.VisualPacket, text string) bool {
+	text = strings.ToLower(text)
+	for _, question := range packet.OpenQuestions {
+		if strings.Contains(strings.ToLower(question.Text), text) {
 			return true
 		}
 	}

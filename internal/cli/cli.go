@@ -2,12 +2,18 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/philipbankier/technical-visualizer/internal/backend"
+	"github.com/philipbankier/technical-visualizer/internal/pack"
 	"github.com/philipbankier/technical-visualizer/internal/pipeline"
 )
 
@@ -57,6 +63,26 @@ func runPipeline(args []string, stdout io.Writer, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Wrote visualization bundle to %s\n", opts.OutputDir)
 	fmt.Fprintf(stdout, "Backend: %s\n", manifest.Backend.Name)
+	handoffMode := strings.ToLower(strings.TrimSpace(opts.Handoff))
+	packMode := strings.ToLower(strings.TrimSpace(opts.Pack))
+	if handoffMode == "codex" {
+		fmt.Fprintf(stdout, "Codex handoff: %s\n", filepath.Join(opts.OutputDir, "handoff", "codex-prompt.md"))
+	}
+	if packMode == "auto" {
+		fmt.Fprintf(stdout, "Content pack: %s\n", filepath.Join(opts.OutputDir, "content-pack.json"))
+		fmt.Fprintf(stdout, "Pack briefs: %s\n", filepath.Join(opts.OutputDir, "pack"))
+		fmt.Fprintf(stdout, "Content pack planner: %s\n", actualContentPackPlanner(opts.OutputDir, opts.Planner))
+		if handoffMode == "codex" {
+			fmt.Fprintf(stdout, "Content pack Codex handoff: %s\n", filepath.Join(opts.OutputDir, "handoff", "content-pack-codex-prompt.md"))
+		}
+	}
+	if handoffMode == "codex" && opts.Quick {
+		promptPath := filepath.Join(opts.OutputDir, "handoff", "codex-prompt.md")
+		if packMode == "auto" {
+			promptPath = filepath.Join(opts.OutputDir, "handoff", "content-pack-codex-prompt.md")
+		}
+		fmt.Fprintf(stdout, "POSIX shell: codex -C %s \"$(cat < %s)\"\n", shellQuote(opts.OutputDir), shellQuote(promptPath))
+	}
 	return 0
 }
 
@@ -71,6 +97,10 @@ func parsePipelineArgs(args []string, stderr io.Writer) (pipeline.Options, error
 	fs.StringVar(&opts.Style, "style", "executive-dark", "visual style name")
 	fs.StringVar(&opts.Goal, "goal", "architecture-map", "artifact goal")
 	fs.BoolVar(&opts.Offline, "offline", false, "skip remote source fetching")
+	fs.StringVar(&opts.Handoff, "handoff", "", "handoff package: codex")
+	fs.BoolVar(&opts.Quick, "quick", false, "print a ready manual command for the selected handoff")
+	fs.StringVar(&opts.Pack, "pack", "off", "content pack mode: off or auto")
+	fs.StringVar(&opts.Planner, "planner", "deterministic", "content pack planner: deterministic or openai; openai requires --pack auto and OPENAI_API_KEY")
 	fs.Usage = func() { printUsage(stderr) }
 	if err := fs.Parse(args); err != nil {
 		return pipeline.Options{}, err
@@ -100,10 +130,40 @@ Common flags:
   --style         Visual style name.
   --goal          Artifact goal.
   --offline       Skip remote source fetching.
+  --handoff       Optional handoff package, currently codex.
+  --quick         Print a ready manual command for the selected handoff.
+  --pack          Content pack mode: off or auto. Defaults to off.
+  --planner       Content pack planner: deterministic or openai. Defaults to deterministic.
+                  openai requires --pack auto and OPENAI_API_KEY; auto/hybrid backends may fall back.
 
 Unsupported in v0.1:
   gather, packet, render, codex image generation
 `)
+}
+
+func actualContentPackPlanner(outputDir string, fallback string) string {
+	fallback = strings.ToLower(strings.TrimSpace(fallback))
+	if fallback == "" {
+		fallback = "deterministic"
+	}
+	file, err := os.OpenInRoot(outputDir, "content-pack.json")
+	if err != nil {
+		return fallback
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return fallback
+	}
+	var contentPack pack.ContentPack
+	if err := json.Unmarshal(data, &contentPack); err != nil {
+		return fallback
+	}
+	plannerName := strings.ToLower(strings.TrimSpace(contentPack.Strategy.Planner))
+	if plannerName == "" {
+		return fallback
+	}
+	return plannerName
 }
 
 func printDoctor(w io.Writer) {
@@ -115,6 +175,7 @@ func printDoctor(w io.Writer) {
 	fmt.Fprintln(w, "local renderer: available (local, fallback PNG and scaffold output)")
 	printNamedCapability(w, "OpenAI Images API", openAI, "direct image backend for --backend openai")
 	printNamedCapability(w, "Codex CLI", codex, "agent workflow only, not a direct image backend")
+	printPopplerStatus(w)
 }
 
 func printNamedCapability(w io.Writer, name string, capability backend.Capability, note string) {
@@ -131,4 +192,39 @@ func printNamedCapability(w io.Writer, name string, capability backend.Capabilit
 		reason = "no details"
 	}
 	fmt.Fprintf(w, "%s: %s (%s, %s; %s)\n", name, status, remote, reason, note)
+}
+
+func printPopplerStatus(w io.Writer) {
+	path, err := exec.LookPath("pdftotext")
+	if err != nil {
+		fmt.Fprintln(w, "Poppler pdftotext: unavailable (install Poppler for PDF-only sources)")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	// #nosec G204 -- path comes from exec.LookPath for the fixed pdftotext binary.
+	cmd := exec.CommandContext(ctx, path, "-v")
+	out, err := cmd.CombinedOutput()
+	version := firstNonEmptyLine(string(out))
+	if err != nil || version == "" {
+		version = "version unknown"
+	}
+	fmt.Fprintf(w, "Poppler pdftotext: available (local, %s)\n", version)
+}
+
+func firstNonEmptyLine(value string) string {
+	for _, line := range strings.Split(value, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

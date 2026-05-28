@@ -82,6 +82,428 @@ func TestValidateBundleFailsWhenManifestSHAIsWrong(t *testing.T) {
 	}
 }
 
+func TestValidateBundleRequiresManifestNextSteps(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		SchemaVersion: "visual-packet/v1",
+		Title:         "Acme Map",
+		RequiredText:  []string{"Acme Map"},
+	}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><title>Acme Map</title><body>Acme Map</body>")
+	manifest := validManifest(dir)
+	manifest.NextSteps = nil
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "next_steps") {
+		t.Fatalf("ValidateBundle issues = %#v, want next_steps issue", issues)
+	}
+}
+
+func TestValidateBundleReportsMissingDeclaredCodexHandoff(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		SchemaVersion: "visual-packet/v1",
+		Title:         "Acme Map",
+		RequiredText:  []string{"Acme Map"},
+	}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+		Kind:   "handoff_prompt",
+		Path:   "handoff/codex-prompt.md",
+		SHA256: "missing",
+	})
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "handoff_brief") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing handoff_brief output", issues)
+	}
+	if !hasIssueContaining(issues, "manifest.json", "could not be checked") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing handoff prompt", issues)
+	}
+}
+
+func TestValidateBundleRejectsBackslashOutputPathBeforeHashing(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	manifest := validManifest(dir)
+	manifest.OutputFiles[0].Path = "..\\secret"
+	manifest.OutputFiles[0].SHA256 = "missing"
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "unsafe path") {
+		t.Fatalf("ValidateBundle issues = %#v, want unsafe path issue", issues)
+	}
+	if hasIssueContaining(issues, "manifest.json", "could not be checked") {
+		t.Fatalf("ValidateBundle issues = %#v, should reject before hashing", issues)
+	}
+}
+
+func TestValidateBundleAcceptsDeclaredCodexHandoff(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		SchemaVersion: "visual-packet/v1",
+		Title:         "Acme Map",
+		RequiredText:  []string{"Acme Map"},
+	}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	if err := os.MkdirAll(filepath.Join(dir, "handoff"), 0o700); err != nil {
+		t.Fatalf("MkdirAll(handoff) error = %v", err)
+	}
+	for _, rel := range []string{"handoff/codex-prompt.md", "handoff/image-brief.md", "handoff/qa-checklist.md", "handoff/style.md"} {
+		writeFile(t, filepath.Join(dir, filepath.FromSlash(rel)), rel)
+	}
+	manifest := validManifest(dir)
+	manifest.NextSteps = []string{"Use the generated handoff package."}
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "handoff_prompt", Path: "handoff/codex-prompt.md", SHA256: sha256File(filepath.Join(dir, "handoff", "codex-prompt.md"))},
+		model.OutputFile{Kind: "handoff_brief", Path: "handoff/image-brief.md", SHA256: sha256File(filepath.Join(dir, "handoff", "image-brief.md"))},
+		model.OutputFile{Kind: "handoff_checklist", Path: "handoff/qa-checklist.md", SHA256: sha256File(filepath.Join(dir, "handoff", "qa-checklist.md"))},
+		model.OutputFile{Kind: "handoff_style", Path: "handoff/style.md", SHA256: sha256File(filepath.Join(dir, "handoff", "style.md"))},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	if issues := ValidateBundle(dir); len(issues) != 0 {
+		t.Fatalf("ValidateBundle issues = %#v, want none", issues)
+	}
+}
+
+func TestValidateBundleAcceptsDeclaredContentPackAndBriefs(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{
+		SchemaVersion: "visual-packet/v1",
+		Title:         "Acme Map",
+		RequiredText:  []string{"Acme Map"},
+	}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{
+		{
+			"id":          "linkedin-dense",
+			"brief_path":  "pack/linkedin-dense/brief.md",
+			"output_path": "pack/linkedin-dense/final.png",
+			"state":       "planned",
+		},
+		{
+			"id":          "social-teaser",
+			"brief_path":  "pack/social-teaser/brief.md",
+			"output_path": "pack/social-teaser/final.png",
+			"state":       "planned",
+		},
+		{
+			"id":          "blog-og",
+			"brief_path":  "pack/blog-og/brief.md",
+			"output_path": "pack/blog-og/final.png",
+			"state":       "planned",
+		},
+	})
+	manifest := validManifest(dir)
+	manifest.NextSteps = []string{"Open content-pack.json and pack target briefs."}
+	manifest.OutputFiles = append(manifest.OutputFiles, contentPackOutputFiles(dir)...)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	if issues := ValidateBundle(dir); len(issues) != 0 {
+		t.Fatalf("ValidateBundle issues = %#v, want none", issues)
+	}
+}
+
+func TestValidateBundleRejectsInvalidContentPackSchema(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v0", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "planned",
+	}})
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles, contentPackOutputFiles(dir)...)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "content-pack.json", "content-pack/v1") {
+		t.Fatalf("ValidateBundle issues = %#v, want content-pack schema issue", issues)
+	}
+}
+
+func TestValidateBundleRejectsUnsafePackTargetPaths(t *testing.T) {
+	cases := []struct {
+		name       string
+		briefPath  string
+		outputPath string
+	}{
+		{name: "brief traversal", briefPath: "../brief.md", outputPath: "pack/linkedin-dense/final.png"},
+		{name: "brief nested traversal", briefPath: "pack/../brief.md", outputPath: "pack/linkedin-dense/final.png"},
+		{name: "brief backslash", briefPath: `pack\linkedin-dense\brief.md`, outputPath: "pack/linkedin-dense/final.png"},
+		{name: "output traversal", briefPath: "pack/linkedin-dense/brief.md", outputPath: "../final.png"},
+		{name: "output nested traversal", briefPath: "pack/linkedin-dense/brief.md", outputPath: "pack/../final.png"},
+		{name: "output backslash", briefPath: "pack/linkedin-dense/brief.md", outputPath: `pack\linkedin-dense\final.png`},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+			writeTestPNG(t, filepath.Join(dir, "final.png"))
+			writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+			writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+			writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+				"id":          "linkedin-dense",
+				"brief_path":  tc.briefPath,
+				"output_path": tc.outputPath,
+				"state":       "planned",
+			}})
+			manifest := validManifest(dir)
+			manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+				Kind:   "content_pack",
+				Path:   "content-pack.json",
+				SHA256: sha256File(filepath.Join(dir, "content-pack.json")),
+			})
+			writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+			issues := ValidateBundle(dir)
+			if !hasIssueContaining(issues, "content-pack.json", "unsafe") {
+				t.Fatalf("ValidateBundle issues = %#v, want unsafe target path issue", issues)
+			}
+		})
+	}
+}
+
+func TestValidateBundleRejectsUnsafeDeclaredPackBriefPath(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "planned",
+	}})
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: `pack\linkedin-dense\brief.md`, SHA256: "missing"},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "unsafe path") {
+		t.Fatalf("ValidateBundle issues = %#v, want unsafe declared pack brief path", issues)
+	}
+	if hasIssueContaining(issues, "manifest.json", "could not be checked") {
+		t.Fatalf("ValidateBundle issues = %#v, should reject before hashing", issues)
+	}
+}
+
+func TestValidateBundleRejectsPackImageForPlannedTargets(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "planned",
+	}})
+	writeTestPNG(t, filepath.Join(dir, "pack", "linkedin-dense", "final.png"))
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_image", Path: "pack/linkedin-dense/final.png", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "final.png"))},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "pack_image") {
+		t.Fatalf("ValidateBundle issues = %#v, want pack_image state issue", issues)
+	}
+}
+
+func TestValidateBundleAcceptsPackImageForGeneratedAndVerifiedTargets(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{
+		{
+			"id":          "linkedin-dense",
+			"brief_path":  "pack/linkedin-dense/brief.md",
+			"output_path": "pack/linkedin-dense/final.png",
+			"state":       "generated",
+		},
+		{
+			"id":          "social-teaser",
+			"brief_path":  "pack/social-teaser/brief.md",
+			"output_path": "pack/social-teaser/final.png",
+			"state":       "verified",
+		},
+	})
+	for _, rel := range []string{"pack/linkedin-dense/final.png", "pack/social-teaser/final.png"} {
+		writeTestPNG(t, filepath.Join(dir, filepath.FromSlash(rel)))
+	}
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/social-teaser/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "social-teaser", "brief.md"))},
+	)
+	for _, rel := range []string{"pack/linkedin-dense/final.png", "pack/social-teaser/final.png"} {
+		manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+			Kind:   "pack_image",
+			Path:   rel,
+			SHA256: sha256File(filepath.Join(dir, filepath.FromSlash(rel))),
+		})
+	}
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	if issues := ValidateBundle(dir); len(issues) != 0 {
+		t.Fatalf("ValidateBundle issues = %#v, want none", issues)
+	}
+}
+
+func TestValidateBundleRejectsPackImageForFailedTargets(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "failed",
+	}})
+	writeTestPNG(t, filepath.Join(dir, "pack", "linkedin-dense", "final.png"))
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_image", Path: "pack/linkedin-dense/final.png", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "final.png"))},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "state \"failed\"") {
+		t.Fatalf("ValidateBundle issues = %#v, want failed pack_image state issue", issues)
+	}
+}
+
+func TestValidateBundleRejectsMissingDeclaredPackImage(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "generated",
+	}})
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_image", Path: "pack/linkedin-dense/final.png", SHA256: "missing"},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "could not be checked") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing pack_image file issue", issues)
+	}
+}
+
+func TestValidateBundleRejectsPackImageOutsideContentPackTarget(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPackFiles(t, dir, "content-pack/v1", []map[string]any{{
+		"id":          "linkedin-dense",
+		"brief_path":  "pack/linkedin-dense/brief.md",
+		"output_path": "pack/linkedin-dense/final.png",
+		"state":       "generated",
+	}})
+	writeTestPNG(t, filepath.Join(dir, "pack", "other", "final.png"))
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles,
+		model.OutputFile{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		model.OutputFile{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		model.OutputFile{Kind: "pack_image", Path: "pack/other/final.png", SHA256: sha256File(filepath.Join(dir, "pack", "other", "final.png"))},
+	)
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "does not match a content pack target output_path") {
+		t.Fatalf("ValidateBundle issues = %#v, want unknown pack_image target issue", issues)
+	}
+}
+
+func TestValidateBundleRejectsPackImageWithoutContentPack(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	writeTestPNG(t, filepath.Join(dir, "pack", "linkedin-dense", "final.png"))
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+		Kind:   "pack_image",
+		Path:   "pack/linkedin-dense/final.png",
+		SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "final.png")),
+	})
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "requires content_pack") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing content_pack issue", issues)
+	}
+}
+
+func TestValidateBundleReportsMissingDeclaredPackHandoffPrompt(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><body>Acme Map</body></html>")
+	manifest := validManifest(dir)
+	manifest.OutputFiles = append(manifest.OutputFiles, model.OutputFile{
+		Kind:   "handoff_pack_prompt",
+		Path:   "handoff/content-pack-codex-prompt.md",
+		SHA256: "missing",
+	})
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "handoff_pack_prompt") {
+		t.Fatalf("ValidateBundle issues = %#v, want missing pack handoff prompt issue", issues)
+	}
+}
+
 func TestValidateBundleAcceptsManifestAuditFields(t *testing.T) {
 	dir := t.TempDir()
 	packet := model.VisualPacket{
@@ -277,6 +699,29 @@ func TestValidateBundleFailsWhenManifestSourceIsInvalid(t *testing.T) {
 	}
 }
 
+func TestValidateBundleFailsWhenSourceDiagnosticsReferenceUnknownSource(t *testing.T) {
+	dir := t.TempDir()
+	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
+	writeTestPNG(t, filepath.Join(dir, "final.png"))
+	writeJSON(t, filepath.Join(dir, "visual-packet.json"), packet)
+	writeFile(t, filepath.Join(dir, "scaffold.html"), "<!doctype html><html><body>Acme Map</body></html>")
+	manifest := validManifest(dir)
+	manifest.SourceDiagnostics = []model.SourceDiagnostic{{
+		SourceID:       "missing-source",
+		Kind:           "pdf",
+		Engine:         "pdftotext",
+		Version:        "pdftotext 25.10.0",
+		PagesAttempted: 1,
+		PagesExtracted: 1,
+	}}
+	writeJSON(t, filepath.Join(dir, "manifest.json"), manifest)
+
+	issues := ValidateBundle(dir)
+	if !hasIssueContaining(issues, "manifest.json", "source_diagnostics") {
+		t.Fatalf("ValidateBundle() issues = %#v, want source diagnostics issue", issues)
+	}
+}
+
 func TestValidateBundleAllowsAparenteGistStyle(t *testing.T) {
 	dir := t.TempDir()
 	packet := model.VisualPacket{SchemaVersion: "visual-packet/v1", Title: "Acme Map", RequiredText: []string{"Acme Map"}}
@@ -348,6 +793,45 @@ func TestValidateBundleFailsWhenFinalPNGDoesNotDecode(t *testing.T) {
 	}
 }
 
+func writeTestPackFiles(t *testing.T, dir string, schemaVersion string, targets []map[string]any) {
+	t.Helper()
+
+	for _, target := range targets {
+		briefPath, _ := target["brief_path"].(string)
+		if strings.Contains(briefPath, "\\") || strings.HasPrefix(briefPath, "../") || filepath.IsAbs(briefPath) {
+			continue
+		}
+		if briefPath == "" {
+			continue
+		}
+		fullPath := filepath.Join(dir, filepath.FromSlash(briefPath))
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0o700); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(fullPath), err)
+		}
+		writeFile(t, fullPath, "pack brief")
+	}
+	writeJSON(t, filepath.Join(dir, "content-pack.json"), map[string]any{
+		"schema_version": schemaVersion,
+		"source_packet":  "visual-packet.json",
+		"title":          "Acme Map",
+		"status":         "planned",
+		"strategy": map[string]any{
+			"planner": "deterministic",
+			"summary": "test plan",
+		},
+		"targets": targets,
+	})
+}
+
+func contentPackOutputFiles(dir string) []model.OutputFile {
+	return []model.OutputFile{
+		{Kind: "content_pack", Path: "content-pack.json", SHA256: sha256File(filepath.Join(dir, "content-pack.json"))},
+		{Kind: "pack_brief", Path: "pack/linkedin-dense/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "linkedin-dense", "brief.md"))},
+		{Kind: "pack_brief", Path: "pack/social-teaser/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "social-teaser", "brief.md"))},
+		{Kind: "pack_brief", Path: "pack/blog-og/brief.md", SHA256: sha256File(filepath.Join(dir, "pack", "blog-og", "brief.md"))},
+	}
+}
+
 func writeValidManifest(t *testing.T, dir string) {
 	t.Helper()
 
@@ -365,6 +849,9 @@ func validManifest(dir string) model.Manifest {
 		Backend:  model.BackendInfo{Name: "local", Remote: false},
 		Renderer: "html",
 		Style:    "executive-dark",
+		NextSteps: []string{
+			"Open scaffold.html first.",
+		},
 		Audit: model.ManifestAudit{
 			ToolVersion:          "0.1.0",
 			RequestedBackend:     "local",
@@ -398,6 +885,9 @@ func sha256File(path string) string {
 func writeTestPNG(t *testing.T, path string) {
 	t.Helper()
 
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", filepath.Dir(path), err)
+	}
 	img := image.NewRGBA(image.Rect(0, 0, 2, 2))
 	for y := 0; y < 2; y++ {
 		for x := 0; x < 2; x++ {

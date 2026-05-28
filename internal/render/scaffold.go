@@ -50,6 +50,12 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
       letter-spacing: 0;
       color: #9fd9ff;
     }
+    h3 {
+      margin: 16px 0 8px;
+      font-size: 16px;
+      letter-spacing: 0;
+      color: #d6e1e8;
+    }
     p {
       line-height: 1.55;
       color: #d6e1e8;
@@ -68,6 +74,33 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
     li {
       margin: 10px 0;
       line-height: 1.45;
+    }
+    pre {
+      overflow-x: auto;
+      padding: 14px;
+      border: 1px solid #2c3942;
+      border-radius: 6px;
+      background: #101418;
+      color: #d6e1e8;
+      white-space: pre-wrap;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      color: #d6e1e8;
+    }
+    th,
+    td {
+      border-bottom: 1px solid #2c3942;
+      padding: 8px 10px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th {
+      color: #9fd9ff;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
     .grid {
       display: grid;
@@ -121,6 +154,69 @@ var scaffoldTemplate = template.Must(template.New("scaffold").Parse(`<!doctype h
         {{range .RequiredText}}<li>{{.}}</li>{{else}}<li>No required text supplied.</li>{{end}}
       </ul>
     </section>
+
+{{if .Metrics}}
+    <section>
+      <h2>Key Metrics</h2>
+      <ul>
+{{range .Metrics}}        <li><span class="text">{{.Label}}: {{.Value}}</span><span class="label">{{.Context}}</span></li>
+{{end}}
+      </ul>
+    </section>
+{{end}}
+
+{{if .Timeline}}
+    <section>
+      <h2>Timeline</h2>
+      <ul>
+{{range .Timeline}}        <li><span class="text">{{.Date}} - {{.Label}}</span><span class="label">{{.Summary}}</span></li>
+{{end}}
+      </ul>
+    </section>
+{{end}}
+
+{{if .Tables}}
+    <section>
+      <h2>Tables</h2>
+{{range .Tables}}      <h3>{{.Title}}</h3>
+      <table>
+        {{if .Headers}}<thead><tr>{{range .Headers}}<th>{{.}}</th>{{end}}</tr></thead>{{end}}
+        <tbody>
+{{range .Rows}}          <tr>{{range .}}<td>{{.}}</td>{{end}}</tr>
+{{end}}        </tbody>
+      </table>
+{{end}}
+    </section>
+{{end}}
+
+{{if .Diagrams}}
+    <section>
+      <h2>Diagrams</h2>
+{{range .Diagrams}}      <h3>{{.Title}}</h3>
+      <pre>{{.Text}}</pre>
+{{end}}
+    </section>
+{{end}}
+
+{{if .OpenQuestions}}
+    <section>
+      <h2>Open Questions</h2>
+      <ul>
+{{range .OpenQuestions}}        <li>{{.Text}}</li>
+{{end}}
+      </ul>
+    </section>
+{{end}}
+
+{{if .ContentBlocks}}
+    <section>
+      <h2>Content Blocks</h2>
+      <ul>
+{{range .ContentBlocks}}        <li><span class="text">{{.Title}}</span><span class="label">{{.Summary}}</span></li>
+{{end}}
+      </ul>
+    </section>
+{{end}}
 
     <section>
       <h2>Claims</h2>

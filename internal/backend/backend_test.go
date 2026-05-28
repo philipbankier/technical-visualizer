@@ -168,6 +168,32 @@ func TestBuildPromptReportsTruncation(t *testing.T) {
 	}
 }
 
+func TestBuildPromptAddsPackTargetInstructions(t *testing.T) {
+	result, err := BuildPrompt(ImageRequest{
+		Prompt:            "Target brief:\n- Required content: system map",
+		ScaffoldHTML:      "<html><body>System map</body></html>",
+		TargetID:          "social-teaser",
+		TargetAspectRatio: "1:1",
+	})
+	if err != nil {
+		t.Fatalf("BuildPrompt() error = %v", err)
+	}
+
+	for _, want := range []string{
+		"Create the social-teaser image from this source-backed content pack target.",
+		"Preserve required text exactly.",
+		"Do not invent facts, APIs, papers, numbers, dates, or recommendations.",
+		"Make it visually stunning while respecting the target density, intent, and aspect ratio.",
+		"Use target aspect ratio 1:1 as composition guidance only.",
+		"Target brief:",
+		"<html><body>System map</body></html>",
+	} {
+		if !strings.Contains(result.Prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, result.Prompt)
+		}
+	}
+}
+
 func TestCodexBackendAvailableReportsMissingBinary(t *testing.T) {
 	client := NewCodexBackend(CodexConfig{BinaryPath: filepath.Join(t.TempDir(), "missing-codex")})
 

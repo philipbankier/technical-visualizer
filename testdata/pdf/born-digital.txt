@@ -1,0 +1,15 @@
+Abstract
+This paper describes a deterministic technical visualization pipeline with source-backed evidence, strong provenance, and clear extraction rules for release-quality generated images.
+
+1 Introduction
+PDF papers often contain the only useful source material for an infographic workflow. The gatherer needs readable text, headings, page boundaries, and conservative warnings.
+
+2.3 Method
+The procedur-
+al extraction step normalizes paper text while preserving claims that downstream packets can cite.
+
+References
+Example Reference. A compact reference entry proves common paper endings are promoted without inventing facts.
+
+Appendix
+Supplemental notes describe fixture behavior.

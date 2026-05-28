@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Smart Content Packs And PDF Source Quality Implementation Notes</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        line-height: 1.5;
+      }
+      body {
+        max-width: 960px;
+        margin: 40px auto;
+        padding: 0 24px 48px;
+      }
+      h1,
+      h2 {
+        line-height: 1.15;
+      }
+      section {
+        border-top: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+        margin-top: 28px;
+        padding-top: 18px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 0.95em;
+      }
+      .entry {
+        border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+        border-radius: 8px;
+        margin: 14px 0;
+        padding: 12px 14px;
+      }
+      .meta {
+        color: color-mix(in srgb, CanvasText 62%, transparent);
+        font-size: 0.9em;
+        margin-bottom: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Smart Content Packs And PDF Source Quality Implementation Notes</h1>
+    <p>
+      Running notes for PDF text extraction, Markdown-ish PDF normalization, content packs,
+      Codex pack handoff, OpenAI pack generation, and later LLM pack planning. Future worker
+      tasks should append entries when behavior diverges from or interprets the approved spec.
+    </p>
+
+    <section>
+      <h2>Design Decisions</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          The execution plan starts with PDF source quality before content packs. Content packs
+          become much more useful once papers and PDF-only sources can produce source-backed
+          packet content without manual rereading.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          PDF work stays in <code>internal/source</code> with a new <code>pdf.go</code> file. The plan
+          avoids a separate <code>internal/source/pdf</code> package until there is real pressure
+          from multiple extractor engines or broader reuse.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          Pack planning gets its own narrow <code>internal/pack</code> package and a separate
+          <code>content-pack.json</code> artifact. <code>visual-packet.json</code> remains the source-backed
+          story spine instead of becoming a multi-output container.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 2</div>
+        <p>
+          The PDF extractor seam now emits real <code>pdf_text</code> evidence when an extractor is
+          injected, but the package default remains unavailable until the Poppler adapter task.
+          Missing extraction returns no placeholder item and gives Poppler install guidance.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          The default PDF extractor now uses Poppler <code>pdftotext</code> through a package-local
+          command runner seam. Tests fake the runner, so Poppler is not required for CI coverage.
+          The production command uses <code>pdftotext -layout -enc UTF-8 &lt;path&gt; -</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          PDF normalization converts raw extractor text into Markdown-ish evidence by preserving
+          page boundaries as <code>&lt;!-- page N --&gt;</code>, dehyphenating alphabetic line breaks,
+          promoting common paper headings, and keeping table-like spacing intact.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 4</div>
+        <p>
+          Packet extraction now treats unmarked PDF lines such as <code>Open Questions</code>,
+          <code>Questions</code>, and <code>Research Questions</code> as section headings. This stays
+          narrow so broader paper heading inference remains owned by PDF normalization.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5</div>
+        <p>
+          PDF extraction diagnostics are derived in the pipeline from public evidence metadata and
+          public warnings, not from source package internals. This keeps manifest diagnostics
+          auditable while avoiding local absolute paths and temporary PDF paths.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 6</div>
+        <p>
+          The first <code>internal/pack</code> planner is deterministic and only supports
+          <code>Mode: "auto"</code>. Required target content is selected from
+          <code>VisualPacket.RequiredText</code>, ranked claim text, and narrow structural tokens
+          such as <code>title</code>, <code>top claims</code>, and <code>core message</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7</div>
+        <p>
+          The pipeline now treats <code>--pack auto</code> as a local bundle-writing stage after
+          <code>visual-packet.json</code> exists. The manifest declares <code>content_pack</code>
+          and one <code>pack_brief</code> per deterministic target, but it still does not declare
+          <code>pack_image</code> outputs because this task only writes planned briefs.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7 review</div>
+        <p>
+          Generated pack directory safety now checks both <code>pack</code> and deterministic
+          target directories before backup, cleanup, and brief writes. This prevents writes or
+          cleanup from following symlinked target directories such as <code>pack/linkedin-dense</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 8</div>
+        <p>
+          Codex content pack handoff remains a local prompt artifact under <code>handoff/</code>.
+          When <code>--pack auto --handoff codex</code> is selected, the pipeline writes
+          <code>content-pack.json</code> with target state <code>handoff_ready</code> and pack status
+          <code>handoff-ready</code>, then writes <code>handoff/content-pack-codex-prompt.md</code>
+          without generating target images.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 9</div>
+        <p>
+          Direct OpenAI pack generation reuses the existing image backend and runs only after the
+          primary <code>final.png</code> succeeds. Each target updates <code>content-pack.json</code>
+          to <code>generated</code> or <code>failed</code>, and the manifest declares
+          <code>pack_image</code> only for target image files that exist.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10</div>
+        <p>
+          The LLM pack planner uses the OpenAI Responses API with Structured Outputs and a
+          <code>content-pack/v1</code> JSON schema. Returned plans are validated against allowed
+          target IDs, paths, states, and source-backed required content before any pack files are
+          written.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10 review</div>
+        <p>
+          Subagent review found that the initial planner slice allowed remote planning in
+          <code>--offline</code>, accepted empty packs, ignored incomplete Responses API results,
+          and pointed pack handoff next steps at the single-image prompt. The implementation now
+          rejects <code>--offline --planner openai</code>, requires the full target set, rejects
+          incomplete planner responses, and points pack handoff guidance at
+          <code>handoff/content-pack-codex-prompt.md</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          The sample bundle is now regenerated with <code>--pack auto</code> and commits
+          <code>content-pack.json</code> plus target briefs. Generated image files remain omitted,
+          and the sample manifest is pruned so it does not claim the omitted local preview PNG.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Deviations</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          No approved deviation yet. The plan keeps <code>--backend codex</code> rejected and treats
+          Codex image generation as a manual handoff workflow.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7</div>
+        <p>
+          The planned rollback test for failed target image generation is not applicable in the
+          current architecture because Task 7 does not generate target images. Quality validation
+          instead rejects <code>pack_image</code> manifest entries for <code>planned</code> and
+          <code>handoff_ready</code> targets; sibling target image preservation belongs with the
+          later pack image generation task.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Tradeoffs</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          Poppler <code>pdftotext</code> is the stable first extractor. This gives the smoothest
+          local experience when installed and avoids shipping native libraries, at the cost of
+          requiring clear install guidance when Poppler is missing.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          The first pack targets are fixed and deterministic. This gives repeatable tests and a
+          dependable CLI contract before adding an LLM planner that can revise the same schema.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 subagent audit</div>
+        <p>
+          The plan intentionally replaces the existing PDF test that accepts warning-only behavior.
+          Warning-only PDF support is now treated as the root product gap, not as an acceptable
+          fallback for PDF-only sources.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 subagent audit</div>
+        <p>
+          Content pack image paths stay out of <code>manifest.output_files</code> until files exist.
+          Planned image paths live in <code>content-pack.json</code> so the manifest does not claim
+          outputs that were not generated.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 2</div>
+        <p>
+          Remote PDF extraction keeps the existing bounded download behavior, writes those bytes to
+          a temporary file for the extractor seam, and hashes the bounded downloaded bytes rather
+          than the temporary path.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          PDF evidence now requires at least <code>200</code> Unicode letters after extraction and
+          normalization. This filters scanned or very low-evidence PDFs into warning-only results
+          instead of creating thin evidence items that look useful downstream.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5</div>
+        <p>
+          Pipeline tests fake Poppler by putting a temporary <code>pdftotext</code> executable on
+          <code>PATH</code>. This preserved the Task 5 file boundary and avoided exporting or editing
+          the package-local PDF extractor seam in <code>internal/source</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 6</div>
+        <p>
+          Pack planning uses planned target states by default and derives the overall pack status
+          from target states. The hyphenated pack wire value <code>handoff-ready</code> and the
+          underscored target wire value <code>handoff_ready</code> stay explicit in schema tests.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 6 review</div>
+        <p>
+          Unknown or empty target states now derive an overall <code>partial</code> status instead
+          of <code>planned</code>. This avoids hiding malformed target state data when the pipeline
+          starts writing pack artifacts.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7</div>
+        <p>
+          Pack cleanup tracks only <code>content-pack.json</code> and the three generated
+          <code>brief.md</code> files. It removes empty generated target directories after cleanup
+          while preserving unrelated operator files under <code>pack/</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5 review</div>
+        <p>
+          After code-quality review, <code>visualize doctor</code> now reports only the first
+          non-empty <code>pdftotext -v</code> line. This keeps doctor output readable without changing
+          how Poppler availability is detected.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 8</div>
+        <p>
+          Quick mode keeps the single-image Codex handoff output visible, but when a content pack is
+          active the printed POSIX command points at the pack prompt. This favors the multi-target
+          workflow the user requested while preserving the older single-image prompt artifact.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 9</div>
+        <p>
+          Pack image generation is limited to explicit <code>--backend openai</code> in this slice.
+          That keeps <code>auto</code> and <code>hybrid</code> fallback behavior unchanged while direct
+          OpenAI runs gain multi-target generation and partial target failure handling.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10</div>
+        <p>
+          <code>--planner deterministic</code> remains the default release-safe path. When
+          <code>--planner openai</code> fails under <code>--backend auto</code> or
+          <code>--backend hybrid</code>, the pipeline falls back to deterministic planning with a
+          manifest warning; explicit <code>--backend openai</code> fails so remote-only runs do not
+          silently become partly local.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10 review</div>
+        <p>
+          The CLI reads the written <code>content-pack.json</code> before printing the planner line.
+          This is intentionally a small local read instead of adding another manifest field, and it
+          uses Go's <code>os.OpenInRoot</code> to keep the read scoped to the output bundle. Fallback
+          runs now say <code>deterministic</code> when the actual pack was deterministic.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          The public sample stays text-only rather than checking in PNG previews. This keeps the
+          repository small and avoids presenting the local fallback PNG as a finished design output,
+          while still showing the pack contract agents and renderers need.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Open Questions</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          Confirm after release slice 2 whether local/offline pack previews should remain briefs
+          only, add a contact sheet, or render HTML screenshots. The approved spec allows previews
+          only if they are labeled clearly as previews.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 subagent audit</div>
+        <p>
+          Overall pack status uses the approved hyphenated wire value <code>handoff-ready</code>,
+          while target state uses <code>handoff_ready</code>. If this feels awkward in practice,
+          change it through a schema migration instead of silently changing the approved contract.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <h2>Validation Evidence</h2>
+      <div class="entry">
+        <div class="meta">2026-05-27 planning</div>
+        <p>
+          The execution plan requires strict red, green, refactor work per task, a worker subagent
+          for each implementation slice, a spec-compliance review, a code-quality review, and a
+          commit after each reviewed slice.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          Red command: <code>go test ./internal/source -run 'NormalizePDFText|TooLittleText' -count=1</code>
+          first failed because <code>normalizePDFTextToMarkdown</code> and <code>popplerExtractor</code>
+          were undefined. After implementation, <code>go test ./internal/source -run 'PDF|Normalize|Poppler' -count=1</code>
+          and <code>go test ./internal/source -count=1</code> passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 3</div>
+        <p>
+          Optional Poppler smoke was available locally: <code>/opt/homebrew/bin/pdftotext</code>,
+          <code>pdftotext version 25.10.0</code>.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5</div>
+        <p>
+          Red command: <code>go test ./internal/model ./internal/quality -run 'SourceDiagnostics|Manifest' -count=1</code>
+          failed because <code>SourceDiagnostic</code> and <code>Manifest.SourceDiagnostics</code> were
+          undefined. After implementation, the targeted PDF, doctor, source diagnostics, and
+          no-evidence tests passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 5 review</div>
+        <p>
+          Added pipeline-level coverage for low-evidence PDF-only failures after spec review noted
+          it as a useful extra guard. The targeted command now includes PDF-only success, missing
+          Poppler, low-evidence PDF, mixed-source warning diagnostics, doctor output, and source
+          diagnostics validation.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 6</div>
+        <p>
+          Red command: <code>go test ./internal/pack -count=1</code> failed with undefined pack
+          symbols after adding the tests. After implementation, <code>go test ./internal/pack
+          -count=1</code> passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 7</div>
+        <p>
+          Red command: <code>go test ./internal/pipeline ./internal/cli ./internal/quality -run 'Pack|ContentPack' -count=1</code>
+          failed because <code>pipeline.Options.Pack</code> and the CLI flag were missing, and
+          quality validation accepted invalid content-pack declarations. After implementation, the
+          same targeted command passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 9</div>
+        <p>
+          Red command: <code>go test ./internal/pipeline ./internal/backend ./internal/quality -run 'Pack.*OpenAI|Partial|BuildPrompt|PackImage' -count=1</code>
+          failed because target image request metadata and pack image generation were not wired, and
+          quality still accepted stale pack image declarations. After implementation, the same
+          targeted command passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10</div>
+        <p>
+          Red command: <code>go test ./internal/pack ./internal/pipeline ./internal/cli -run 'Planner|Pack' -count=1</code>
+          failed because planner selection, the OpenAI planner, and the <code>--planner</code> CLI
+          flag did not exist. After implementation,
+          <code>go test ./internal/pack ./internal/pipeline ./internal/cli -run 'Planner|Pack|Fallback' -count=1</code>
+          passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 10 review</div>
+        <p>
+          Red command: <code>go test ./internal/pack ./internal/pipeline ./internal/cli -run 'ValidateContentPackRejectsMissingTargets|OpenAIPlannerRejectsIncompleteResponse|OfflineOpenAIPlanner|AutoFallbackPrintsActualPlanner|PackCodexHandoffWritesPackPrompt' -count=1</code>
+          failed on the subagent review gaps before the fix and passed afterward. Security review
+          initially flagged the CLI planner read as an unscoped file read; switching it to
+          <code>os.OpenInRoot</code> made <code>GOTOOLCHAIN=go1.26.3 script/security</code> pass.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          Added <code>TestVisualizePackAutoLocalE2E</code> as a CLI-level smoke test for
+          <code>go run ./cmd/visualize --pack auto --backend local --renderer html --offline</code>.
+          The targeted command <code>go test ./... -run TestVisualizePackAutoLocalE2E -count=1</code>
+          passed.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          Poppler is installed locally at <code>/opt/homebrew/bin/pdftotext</code> with version
+          <code>25.10.0</code>, but there is no checked-in <code>testdata/pdf/*.pdf</code> fixture.
+          The live PDF smoke was skipped for that reason; PDF subprocess behavior remains covered
+          by fake-<code>pdftotext</code> pipeline tests and text fixtures.
+        </p>
+      </div>
+      <div class="entry">
+        <div class="meta">2026-05-27 Task 11</div>
+        <p>
+          Final release gates passed after the sample and e2e updates:
+          <code>script/lint</code>, <code>script/test</code>, <code>script/smoke</code>,
+          <code>GOTOOLCHAIN=go1.26.3 script/security</code>, <code>go test -cover ./...</code>,
+          and <code>git diff --check</code>.
+        </p>
+      </div>
+    </section>
+  </body>
+</html>

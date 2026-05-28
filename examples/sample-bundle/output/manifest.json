@@ -2,7 +2,7 @@
   "schema_version": "manifest/v1",
   "sources": [
     {
-      "id": "src-f8e0c45f0910",
+      "id": "src-21dbbbe0666c",
       "kind": "markdown",
       "input": "examples/sample-bundle/input/notes.md"
     }
@@ -14,6 +14,13 @@
   "renderer": "html",
   "style": "executive-dark",
   "warnings": [],
+  "next_steps": [
+    "Open scaffold.html first; visual-packet.json contains the source-backed content packet for this run.",
+    "For a polished OpenAI image, set OPENAI_API_KEY and rerun with --backend openai --renderer image.",
+    "For a guided Codex package, rerun with --handoff codex.",
+    "offline mode was enabled; no remote source fetching or remote image generation was performed.",
+    "Open content-pack.json and pack/ target brief directories before producing target-specific images."
+  ],
   "audit": {
     "tool_version": "0.1.0",
     "requested_backend": "local",
@@ -30,16 +37,36 @@
     {
       "kind": "scaffold",
       "path": "scaffold.html",
-      "sha256": "c0601050977cebcd8708dfadd00fd1e4943b29162fa57b3fd3dc165a5227ab43"
+      "sha256": "f565b33b69e057dbfaa57a823f28ac5d68363c55f98bb390296ecba66f7d3d4b"
     },
     {
       "kind": "visual_packet",
       "path": "visual-packet.json",
-      "sha256": "f29878001b828e88a216afff300e56a340133edf3943bc6c3021f1c1f8a8d539"
+      "sha256": "31429864cb75451c8ab61850f581e0bf78d43f4dca69f9dc6b36643120661bf8"
     },
     {
       "kind": "manifest",
       "path": "manifest.json"
+    },
+    {
+      "kind": "content_pack",
+      "path": "content-pack.json",
+      "sha256": "3e5de56aaddb71853accd94b852a47280270e966f9f393b1fb9df032af0e6332"
+    },
+    {
+      "kind": "pack_brief",
+      "path": "pack/linkedin-dense/brief.md",
+      "sha256": "bb1ad680066f66fbfe48685c542faa4eee7856164460ce2499ce43532c37e2d7"
+    },
+    {
+      "kind": "pack_brief",
+      "path": "pack/social-teaser/brief.md",
+      "sha256": "ed7b3e0d7e0a9366532c006eb25425c43017e0cc84594f0765d9a7636ebd8a53"
+    },
+    {
+      "kind": "pack_brief",
+      "path": "pack/blog-og/brief.md",
+      "sha256": "090327cc3512a2dbf3f451fbab93be3c9de0f3c4f980750273bf7c4a1be58852"
     }
   ]
 }
